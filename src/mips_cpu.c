@@ -4,6 +4,8 @@
  *
  * Implements all of the specified MIPS-I instructions,
  * excluding SYSCALL, COPz, LWCz and SWCz
+ *
+ * Compiled under ISO C99
  **/
 
 #include "mips_cpu.h"
@@ -39,6 +41,8 @@ struct mips_cpu_impl
 	FILE* output;
 	/// Program counter
 	uint32_t pc;
+	/// Delay state
+	unsigned delay;
 	/// The $HI and $LO registers
 	long_reg hi_lo;
 	/// General purpose registers
@@ -64,11 +68,14 @@ typedef struct
 } jtype;
 
 /// Signature for a general operation
+/// 'state' can be assumed valid
 typedef mips_error (*op)(mips_cpu_h state, uint32_t instruction);
 
 /// Signature for an R-type operation
+/// 'state' can be assumed valid
 typedef mips_error (*rtype_op)(mips_cpu_h state, rtype operands);
 
+/// Parses an R-type operand list from an instruction
 rtype get_rtype(uint32_t instr)
 {
 	rtype ret;
@@ -82,6 +89,7 @@ rtype get_rtype(uint32_t instr)
 	return ret;
 }
 
+/// Parses an I-type operand list from an instruction
 itype get_itype(uint32_t instr)
 {
 	itype ret;
@@ -93,6 +101,7 @@ itype get_itype(uint32_t instr)
 	return ret;
 }
 
+/// Parses a J-type operand list from an instruction
 jtype get_jtype(uint32_t instr)
 {
 	jtype ret;
@@ -115,6 +124,7 @@ mips_error not_impl(mips_cpu_h state, uint32_t instruction)
 	return mips_ErrorNotImplemented;
 }
 
+/// Dummy function for non-implemented R-type instruction
 mips_error not_impl_r(mips_cpu_h state, rtype operands)
 {
 	return mips_ErrorNotImplemented;
@@ -163,18 +173,14 @@ mips_error branch_zero(mips_cpu_h state, uint32_t instruction)
 	default:
 		return mips_ExceptionInvalidInstruction;
 	}
+	/// Use the first bit of the 'd' field
+	/// to determine if we need to link
+	/// The link happens regardless of whether the condition is true
+	if(operands.d & 0x10)
+		set_reg(state, 31, state->pc + 8);
 	if(result)
-	{
-		/// Use the first bit of the 'd' field
-		/// to determine if we need to link
-		if(operands.d & 0x10)
-			set_reg(state, 31, state->pc + 4);
 		state->pc += (int32_t)operands.imm << 2;
-	}
-	else
-	{
-		state->pc += 4;
-	}
+	state->pc += 4;
 	return mips_Success;
 }
 
@@ -189,7 +195,9 @@ mips_error branch_var(mips_cpu_h state, uint32_t instruction)
 	/// otherwise BEQ
 	if(operands.opcode & 1)
 		result = !result;
-	state->pc += result ? (int32_t)operands.imm << 2 : 4;
+	if(result)
+		state->pc += (int32_t)operands.imm << 2;
+	state->pc += 4;
 	return mips_Success;
 }
 
@@ -217,7 +225,7 @@ mips_error addi(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
-/// Set if less than
+/// Set if less than immediate
 mips_error slti(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -232,6 +240,7 @@ mips_error slti(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Bitwise functions with immediate
 mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -239,13 +248,13 @@ mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 	uint32_t result;
 	switch(operands.opcode & 3)
 	{
-	case 0:
+	case 0: /// ANDI
 		result = value & operands.imm;
 		break;
-	case 1:
+	case 1: /// ORI
 		result = value | operands.imm;
 		break;
-	case 2:
+	case 2: /// XORI
 		result = value ^ operands.imm;
 		break;
 	default:
@@ -256,6 +265,7 @@ mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Load upper immediate
 mips_error lui(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -264,6 +274,7 @@ mips_error lui(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Common function for most memory operations
 mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uint8_t* word)
 {
 	if(state->mem == NULL)
@@ -277,6 +288,7 @@ mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uin
 	return error;
 }
 
+/// Load byte
 mips_error lb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -284,11 +296,13 @@ mips_error lb(mips_cpu_h state, uint32_t instruction)
 	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
 	if(error)
 		return error;
+	/// The fourth bit of the opcode determines whether to extend the sign bit
 	set_reg(state, operands.d, (operands.opcode & 4) ? (uint32_t)word : (int32_t)word);
 	state->pc += 4;
 	return mips_Success;
 }
 
+/// Load half word
 mips_error lh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -296,11 +310,13 @@ mips_error lh(mips_cpu_h state, uint32_t instruction)
 	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
 	if(error)
 		return error;
+	/// The fourth bit of the opcode determines whether to extend the sign bit
 	set_reg(state, operands.d, (operands.opcode & 4) ? (uint32_t)word : (int32_t)word);
 	state->pc += 4;
 	return mips_Success;
 }
 
+/// Load word
 mips_error lw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -313,6 +329,7 @@ mips_error lw(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Load word left
 mips_error lwl(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -325,6 +342,7 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Load word right
 mips_error lwr(mips_cpu_h state, uint32_t instruction)
 {
 	if(state->mem == NULL)
@@ -340,6 +358,7 @@ mips_error lwr(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Store byte
 mips_error sb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -351,6 +370,7 @@ mips_error sb(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Store half word
 mips_error sh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -362,6 +382,7 @@ mips_error sh(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Store word
 mips_error sw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
@@ -373,6 +394,7 @@ mips_error sw(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Base functionality for shift instructions
 mips_error shift_base(mips_cpu_h state, rtype operands, uint32_t shift)
 {
 	uint32_t* regs = state->reg;
@@ -380,16 +402,16 @@ mips_error shift_base(mips_cpu_h state, rtype operands, uint32_t shift)
 	uint32_t value = regs[operands.s2];
 	switch(operands.f & 3)
 	{
-	case 0:
+	case 0: /// Logical left
 		result = value << shift;
 		break;
-	case 1:
+	case 1: /// Arithmetic left (not really used)
 		result = (int32_t)value << shift;
 		break;
-	case 2:
+	case 2: /// Logical right
 		result = value >> shift;
 		break;
-	case 3:
+	case 3: /// Arithmetic right
 		result = (int32_t)value >> shift;
 		break;
 	}
@@ -398,27 +420,32 @@ mips_error shift_base(mips_cpu_h state, rtype operands, uint32_t shift)
 	return mips_Success;
 }
 
+/// Shift by immediate (shift field)
 mips_error shift(mips_cpu_h state, rtype operands)
 {
 	return shift_base(state, operands, operands.shift);
 }
 
+/// Shift variable
 mips_error shift_var(mips_cpu_h state, rtype operands)
 {
 	return shift_base(state, operands, state->reg[operands.s1]);
 }
 
+/// Jump to register
 mips_error jr(mips_cpu_h state, rtype operands)
 {
 	state->pc = state->reg[operands.s1];
 	return mips_Success;
 }
 
+/// Break
 mips_error breakpoint(mips_cpu_h state, rtype operands)
 {
 	return mips_ExceptionBreak;
 }
 
+/// Move from HI
 mips_error mfhi(mips_cpu_h state, rtype operands)
 {
 	state->reg[operands.d] = state->hi_lo.parts.hi;
@@ -426,6 +453,7 @@ mips_error mfhi(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Move to HI
 mips_error mthi(mips_cpu_h state, rtype operands)
 {
 	state->hi_lo.parts.hi = state->reg[operands.s1];
@@ -433,6 +461,7 @@ mips_error mthi(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Move from LO
 mips_error mflo(mips_cpu_h state, rtype operands)
 {
 	state->reg[operands.d] = state->hi_lo.parts.lo;
@@ -440,6 +469,7 @@ mips_error mflo(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Move to LO
 mips_error mtlo(mips_cpu_h state, rtype operands)
 {
 	state->hi_lo.parts.lo = state->reg[operands.s1];
@@ -447,6 +477,7 @@ mips_error mtlo(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Add or subtract registers
 mips_error add_sub(mips_cpu_h state, rtype operands)
 {
 	uint32_t* regs = state->reg;
@@ -456,19 +487,19 @@ mips_error add_sub(mips_cpu_h state, rtype operands)
 	int32_t x, y;
 	switch(operands.f & 3)
 	{
-	case 0:
+	case 0: /// ADD
 		x = (int32_t)v1;
 		y = (int32_t)v2;
 		if ((y > 0 && x > INT_MAX - y) ||
 			(y < 0 && x < INT_MIN - y))
 			return mips_ExceptionArithmeticOverflow;
-	case 1:
+	case 1: /// ADDU
 		result = v1 + v2;
 		break;
-	case 2:
+	case 2: /// SUB
 		result = ((int32_t)v1 - (int32_t)v2);
 		break;
-	case 3:
+	case 3: /// SUBU
 		result = v1 - v2;
 	}
 	set_reg(state, operands.d, result);
@@ -476,11 +507,14 @@ mips_error add_sub(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Multiply
 mips_error mult(mips_cpu_h state, rtype operands)
 {
 	uint32_t* regs = state->reg;
 	uint32_t v1 = regs[operands.s1];
 	uint32_t v2 = regs[operands.s2];
+	/// The last bit of the function field determines
+	/// whether to use unsigned numbers
 	if(operands.f & 1)
 		state->hi_lo.full = (uint64_t)v1 * (uint64_t)v2;
 	else
@@ -489,6 +523,7 @@ mips_error mult(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Divide ('div' was already taken by stdlib.h)
 mips_error _div(mips_cpu_h state, rtype operands)
 {
 	uint32_t* regs = state->reg;
@@ -508,6 +543,7 @@ mips_error _div(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Bitwise instructions
 mips_error bitwise(mips_cpu_h state, rtype operands)
 {
 	uint32_t* regs = state->reg;
@@ -516,16 +552,16 @@ mips_error bitwise(mips_cpu_h state, rtype operands)
 	uint32_t result;
 	switch(operands.f)
 	{
-	case 0:
+	case 0: /// AND
 		result = v1 & v2;
 		break;
-	case 1:
+	case 1: /// OR
 		result = v1 | v2;
 		break;
-	case 2:
+	case 2: /// XOR
 		result = v1 ^ v2;
 		break;
-	case 3:
+	case 3: /// NOR
 		result = ~(v1 | v2);
 		break;
 	default:
@@ -536,12 +572,15 @@ mips_error bitwise(mips_cpu_h state, rtype operands)
 	return mips_Success;
 }
 
+/// Set if less than
 mips_error slt(mips_cpu_h state, rtype operands)
 {
 	uint32_t* regs = state->reg;
 	uint32_t v1 = regs[operands.s1];
 	uint32_t v2 = regs[operands.s2];
 	bool result;
+	/// The last bit of the function field
+	/// indicates whether to use an unsigned comparison
 	if(operands.f & 1)
 		result = (int32_t)v1 < (int32_t)v2;
 	else
@@ -692,6 +731,7 @@ static op operations[64] =
 	BLANK
 };
 
+/// Creates a CPU state
 mips_cpu_h mips_cpu_create(mips_mem_h mem)
 {
 	mips_cpu_h ret = malloc(sizeof(struct mips_cpu_impl));
@@ -700,6 +740,7 @@ mips_cpu_h mips_cpu_create(mips_mem_h mem)
 	return ret;
 }
 
+/// Resets the CPU to zero
 mips_error mips_cpu_reset(mips_cpu_h state)
 {
 	if(state == NULL)
@@ -713,6 +754,7 @@ mips_error mips_cpu_reset(mips_cpu_h state)
 	return mips_Success;
 }
 
+/// Gets a register value
 mips_error mips_cpu_get_register(
 	mips_cpu_h state,
 	unsigned index,
@@ -727,6 +769,7 @@ mips_error mips_cpu_get_register(
 	return mips_Success;
 }
 
+/// Sets the program counter
 mips_error mips_cpu_set_pc(
 	mips_cpu_h state,
 	uint32_t pc
@@ -738,6 +781,7 @@ mips_error mips_cpu_set_pc(
 	return mips_Success;
 }
 
+/// Gets the program counter
 mips_error mips_cpu_get_pc(mips_cpu_h state, uint32_t *pc)
 {
 	if(state == NULL)
@@ -748,6 +792,7 @@ mips_error mips_cpu_get_pc(mips_cpu_h state, uint32_t *pc)
 	return mips_Success;
 }
 
+/// Performs one step in the CPU
 mips_error mips_cpu_step(mips_cpu_h state)
 {
 	static uint32_t instruction;
@@ -771,6 +816,10 @@ mips_error mips_cpu_step(mips_cpu_h state)
 	return ret;
 }
 
+/// Sets the debug level:
+///   0: None
+///   1: Output instruction text
+///   2: Instruction text and register setting
 mips_error mips_cpu_set_debug_level(mips_cpu_h state,
 	unsigned level,
 	FILE *dest)
@@ -782,6 +831,7 @@ mips_error mips_cpu_set_debug_level(mips_cpu_h state,
 	return mips_Success;
 }
 
+/// Releases CPU resources
 void mips_cpu_free(mips_cpu_h state)
 {
 	if(state != NULL)
