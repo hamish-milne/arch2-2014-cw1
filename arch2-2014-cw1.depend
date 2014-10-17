@@ -1,0 +1,45 @@
+# depslib dependency file v1.0
+1413544592 source:c:\users\administrator\documents\arch2-2014-cw1\fragments\f_addu.c
+	<stdint.h>
+
+1413544592 source:c:\users\administrator\documents\arch2-2014-cw1\fragments\f_fibonacci.c
+	<stdint.h>
+
+1413544592 source:c:\users\administrator\documents\arch2-2014-cw1\main.c
+	<stdio.h>
+	<stdlib.h>
+
+1413544592 source:c:\users\administrator\documents\arch2-2014-cw1\src\shared\mips_mem_ram.cpp
+	"mips_mem.h"
+	<stdio.h>
+	<stdlib.h>
+
+1413544592 c:\users\administrator\documents\arch2-2014-cw1\include\mips_mem.h
+	"mips_core.h"
+
+1413544592 c:\users\administrator\documents\arch2-2014-cw1\include\mips_core.h
+	<stdint.h>
+	<stdio.h>
+	<stdlib.h>
+
+1413544592 source:c:\users\administrator\documents\arch2-2014-cw1\src\shared\mips_test_framework.cpp
+	"mips_test.h"
+	<map>
+	<string>
+	<vector>
+	<set>
+	<algorithm>
+	<string>
+
+1413544592 c:\users\administrator\documents\arch2-2014-cw1\include\mips_test.h
+	"mips_cpu.h"
+
+1413544592 c:\users\administrator\documents\arch2-2014-cw1\include\mips_cpu.h
+	"mips_mem.h"
+
+1413552000 source:c:\users\administrator\documents\arch2-2014-cw1\src\mips_cpu.c
+	"mips_cpu.h"
+	"stdio.h"
+	"limits.h"
+	"stdbool.h"
+
