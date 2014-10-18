@@ -4,7 +4,7 @@
 #ifndef mips_core_header
 #define mips_core_header
 
-/*! \file 
+/*! \file
     The <stdint.h> header gives us types of a known width and signedness, like
     uint32_t and int16_t. These types can be very useful for
     matching the internal types of a processor, and for managing
@@ -33,7 +33,7 @@ extern "C"{
 */
 typedef enum _mips_error{
     mips_Success =0,
-    
+
     //! Error from within the simulator.
     ///@{
     mips_ErrorNotImplemented=0x1000,
@@ -42,7 +42,7 @@ typedef enum _mips_error{
     mips_ErrorFileReadError=0x1003,
     mips_ErrorFileWriteError=0x1004,
     ///@}
-    
+
     //! Error or exception from the simulated processor or program.
     ///@{
     mips_ExceptionBreak=0x2000,
@@ -51,8 +51,10 @@ typedef enum _mips_error{
     mips_ExceptionAccessViolation=0x2003,
     mips_ExceptionInvalidInstruction=0x2004,
     mips_ExceptionArithmeticOverflow=0x2005,
+    mips_ExceptionCoprocessorUnusable=0x2006,
+    mips_ExceptionSystemCall=0x2007,
     ///@}
-    
+
     /*! This is an extension point for implementations. Codes
         at this number and above are available for the
         implementation, but are not generally understood.

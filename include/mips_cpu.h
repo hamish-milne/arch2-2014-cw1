@@ -9,7 +9,7 @@
 #ifdef __cplusplus
 extern "C"{
 #endif
-	
+
 /*! \defgroup mips_cpu CPU API
 	\addtogroup mips_cpu
 	@{
@@ -17,9 +17,9 @@ extern "C"{
 
 
 /*! Represents the state of a cpu.
-	
+
 	This another opaque data type, similar to \ref mips_mem_provider.
-	
+
 	\struct mips_cpu_impl
 */
 struct mips_cpu_impl;
@@ -32,14 +32,32 @@ struct mips_cpu_impl;
 */
 typedef struct mips_cpu_impl *mips_cpu_h;
 
+/// Signature for a general operation
+/// 'state' can be assumed valid
+typedef mips_error (*op)(mips_cpu_h state, uint32_t instruction);
+
+/// Signature for an I-type operation
+/// 'state' can be assumed valid
+typedef mips_error (*cop_load_store)(mips_cpu_h state, unsigned reg, uint32_t* data);
+
+typedef void (*debug_handle)(mips_cpu_h state, const char* message, size_t len);
+
+extern const char* exceptions[16];
+
+/// Struct for a set of coprocessor functions
+typedef struct
+{
+	op cop;
+	cop_load_store lwc, swc;
+} coprocessor;
 
 /*! Creates and initialises a new CPU instance.
-	
+
 	The CPU should be bound to the given
 	\ref mips_mem_core "memory space", and have all registers set
 	to zero. The memory is not owned by the CPU, so it should not
 	be \ref mips_mem_free "freed" when the CPU is \ref mips_cpu_free "freed".
-	
+
 	\param mem The memory space the processor is connected to; think of it
 	as the address bus to which the CPU has been wired.
 */
@@ -86,14 +104,14 @@ mips_error mips_cpu_get_pc(mips_cpu_h state, uint32_t *pc);
 	should be left unchanged. This is so that the user can
 	inspect what happened and find out what went wrong. So
 	this should be true:
-	
+
 		uint32_t pc=mips_cpu_get_pc(cpu);
 		mips_error err=mips_cpu_step(cpu);
 		if(err!=mips_Success){
 			assert(mips_cpu_get_pc(cpu)==pc);
 			assert(mips_cpu_step(cpu)==err);
 	    }
-	
+
 	Maintaining this property in all cases is actually pretty
 	difficult, so _try_ to maintain it, but don't worry too
 	much if under some exceptions it doesn't quite work.
@@ -110,21 +128,21 @@ mips_error mips_cpu_step(mips_cpu_h state);
 	provides a way for the user to indicate both how much
 	output they are interested in, and where that output
 	should go (should it go to stdout, or stderr, or a file?).
-	
+
 	\param state Valid (non-empty) CPU handle.
-	
+
 	\param level What level of output should be printed. There
 	is no specific format for the output format, the only
 	requirement is that for level zero there is no output.
-	
+
 	\param dest Where the output should go. This should be
 	remembered by the CPU simulator, then later passed
 	to fprintf to provide output.
-	
+
 	\pre It is required that if level>0 then dest!=0, so the
 	caller will always provide a valid destination if they
 	have indicated they will require output.
-	
+
 	It is suggested that for level=1 you print out one
 	line of information per instruction with basic information
 	like the program counter and the instruction type, and for higher
@@ -135,9 +153,13 @@ mips_error mips_cpu_step(mips_cpu_h state);
 
 	However, this is completely implementation defined behaviour,
 	so your simulator does not have to print anything for
-	any debug level if you don't want to. 
+	any debug level if you don't want to.
 */
 mips_error mips_cpu_set_debug_level(mips_cpu_h state, unsigned level, FILE *dest);
+
+mips_error mips_cpu_set_debug_handler(mips_cpu_h state, debug_handle handle);
+
+mips_error mips_cpu_set_coprocessor(mips_cpu_h state, unsigned index, coprocessor cp);
 
 /*! Free all resources associated with state.
 
@@ -146,16 +168,16 @@ mips_error mips_cpu_set_debug_level(mips_cpu_h state, unsigned level, FILE *dest
 	It is legal to pass an empty handle to mips_cpu_free. It is illegal
 	to pass the same non-empty handle to mips_cpu_free twice, and will
 	result in undefined behaviour (i.e. anything could happen):
-	
+
 		mips_cpu_h cpu=mips_cpu_create(...);
 		...
 		mips_cpu_free(h);	// This is fine
 		...
 		mips_cpu_free(h);	// BANG! or nothing. Or format the hard disk.
-	
+
 	A better pattern is to always zero the variable after calling free,
 	in case elsewhere you are not sure if resources have been released yet:
-	
+
 		mips_cpu_h cpu=mips_cpu_create(...);
 		...
 		mips_cpu_free(h);	// This is fine

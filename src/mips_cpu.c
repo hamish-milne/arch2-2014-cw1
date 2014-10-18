@@ -2,10 +2,9 @@
  * MIPS-I CPU Implementation
  * (C) Hamish Milne 2014
  *
- * Implements all of the specified MIPS-I instructions,
- * excluding SYSCALL, COPz, LWCz and SWCz
+ * Implements all MIPS-I instructions
  *
- * Compiled under ISO C99
+ * Compiled under standard GCC (C90 with single line comments)
  **/
 
 #include "mips_cpu.h"
@@ -14,8 +13,9 @@
 #include "stdbool.h"
 
 #define NUM_REGS 32
+#define BUF_SIZE 256
 
-#define BLANK 0,0,0,0
+#define BLANK {0},{0},{0},{0}
 
 /// Two words next to each other, the high and low parts
 typedef struct
@@ -29,25 +29,6 @@ typedef union
 	uint64_t full;
 	s_hi_lo parts;
 } long_reg;
-
-/// CPU state structure
-struct mips_cpu_impl
-{
-	/// Pointer to memory object
-	mips_mem_h mem;
-	/// Debug level
-	unsigned debug;
-	/// Output for debug messages
-	FILE* output;
-	/// Program counter
-	uint32_t pc;
-	/// Delay state
-	unsigned delay;
-	/// The $HI and $LO registers
-	long_reg hi_lo;
-	/// General purpose registers
-	uint32_t reg[NUM_REGS];
-};
 
 /// Data for an R-type instruction
 typedef struct
@@ -67,13 +48,63 @@ typedef struct
 	unsigned opcode, imm;
 } jtype;
 
-/// Signature for a general operation
-/// 'state' can be assumed valid
-typedef mips_error (*op)(mips_cpu_h state, uint32_t instruction);
-
 /// Signature for an R-type operation
 /// 'state' can be assumed valid
 typedef mips_error (*rtype_op)(mips_cpu_h state, rtype operands);
+
+/// Signature for a state flag operation
+/// 'state' can be assumed valid
+typedef mips_error (*state_op)(mips_cpu_h state);
+
+typedef struct
+{
+	op op;
+	const char* name;
+} op_info;
+
+typedef struct
+{
+	rtype_op op;
+	const char* name;
+} rtype_op_info;
+
+typedef struct
+{
+	uint16_t value;
+	unsigned dest;
+	bool shift;
+} lw_data;
+
+/// CPU state structure
+struct mips_cpu_impl
+{
+	/// Pointer to memory object
+	mips_mem_h mem;
+	/// Debug level
+	unsigned debug;
+	/// Output for debug messages
+	FILE* output;
+	/// Debug handler method
+	debug_handle debug_handle;
+	/// Program counter
+	uint32_t pc;
+	/// Delay state
+	unsigned delay;
+	/// Delayed jump address
+	uint32_t jump_addr;
+	/// Saved values for LWL and LWR
+	lw_data lw1, lw2;
+	/// The $HI and $LO registers
+	long_reg hi_lo;
+	/// Coprocessor settings
+	coprocessor coprocessor[4];
+	/// General purpose registers
+	uint32_t reg[NUM_REGS];
+	/// Flags for when the register is undefined
+	bool undefined[NUM_REGS];
+	/// Exception handler locations
+	uint32_t exception[16];
+};
 
 /// Parses an R-type operand list from an instruction
 rtype get_rtype(uint32_t instr)
@@ -110,12 +141,44 @@ jtype get_jtype(uint32_t instr)
 	return ret;
 }
 
+const char* exceptions[16] =
+{
+	"Break",
+	"Invalid address",
+	"Invalid alignment",
+	"Access violation",
+	"Invalid instruction",
+	"Arithmetic overflow",
+	"Coprocessor unusable",
+	"System call",
+	0,0,0,0,
+	0,0,0,0
+};
+
+static char temp_buf[BUF_SIZE];
+
+void debug(mips_cpu_h state, const char* buf, size_t bufsize)
+{
+	debug_handle dh = state->debug_handle;
+	if(dh == NULL)
+	{
+		FILE* file = state->output;
+		if(file == NULL)
+			file = stdout;
+		fwrite(buf, 1, bufsize, file);
+	}
+	else
+	{
+		dh(state, buf, bufsize);
+	}
+}
+
 /// Sets a register, ensuring that $0 == 0 and outputting debug information
 void set_reg(mips_cpu_h state, unsigned index, uint32_t value)
 {
 	state->reg[index] = index ? value : 0;
 	if(state->debug > 1 && state->output != NULL)
-		fprintf(state->output, "$%d = %d (%a)", index, (int32_t)value, value);
+		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (%x)", index, (int32_t)value, value) + 1);
 }
 
 /// Dummy function for non-implemented instructions
@@ -130,11 +193,17 @@ mips_error not_impl_r(mips_cpu_h state, rtype operands)
 	return mips_ErrorNotImplemented;
 }
 
+void set_branch_delay(mips_cpu_h state, uint32_t value)
+{
+	state->delay = (state->delay & ~0x2) | 0x1;
+	state->jump_addr = value;
+}
+
 /// Jump
 mips_error jump(mips_cpu_h state, uint32_t instruction)
 {
 	jtype operands = get_jtype(instruction);
-	state->pc = (state->pc & 0xF0000000) | ((int32_t)operands.imm << 2);
+	set_branch_delay(state, (state->pc & 0xF0000000) | ((int32_t)operands.imm << 2));
 	return mips_Success;
 }
 
@@ -143,7 +212,7 @@ mips_error jal(mips_cpu_h state, uint32_t instruction)
 {
 	jtype operands = get_jtype(instruction);
 	set_reg(state, 31, state->pc + 4);
-	state->pc = (state->pc & 0xF0000000) | ((int32_t)operands.imm << 2);
+	set_branch_delay(state, (state->pc & 0xF0000000) | ((int32_t)operands.imm << 2));
 	return mips_Success;
 }
 
@@ -179,7 +248,7 @@ mips_error branch_zero(mips_cpu_h state, uint32_t instruction)
 	if(operands.d & 0x10)
 		set_reg(state, 31, state->pc + 8);
 	if(result)
-		state->pc += (int32_t)operands.imm << 2;
+		set_branch_delay(state, ((int32_t)operands.imm << 2) + 4);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -196,7 +265,7 @@ mips_error branch_var(mips_cpu_h state, uint32_t instruction)
 	if(operands.opcode & 1)
 		result = !result;
 	if(result)
-		state->pc += (int32_t)operands.imm << 2;
+		set_branch_delay(state, ((int32_t)operands.imm << 2) + 4);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -288,6 +357,43 @@ mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uin
 	return error;
 }
 
+/// Coprocessor instruction
+mips_error copz(mips_cpu_h state, uint32_t instruction)
+{
+	op cop = state->coprocessor[(instruction >> 26) & 3].cop;
+	if(cop == NULL)
+		return mips_ErrorNotImplemented;
+	return cop(state, instruction);
+}
+
+/// Load word to a coprocessor
+mips_error lwcz(mips_cpu_h state, uint32_t instruction)
+{
+	cop_load_store lwc = state->coprocessor[(instruction >> 26) & 3].lwc;
+	if(lwc == NULL)
+		return mips_ErrorNotImplemented;
+	uint32_t data;
+	itype operands = get_itype(instruction);
+	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&data);
+	if(error)
+		return error;
+	return lwc(state, operands.d, &data);
+}
+
+/// Store word from a coprocessor
+mips_error swcz(mips_cpu_h state, uint32_t instruction)
+{
+	cop_load_store lwc = state->coprocessor[(instruction >> 26) & 3].swc;
+	if(lwc == NULL)
+		return mips_ErrorNotImplemented;
+	uint32_t data;
+	itype operands = get_itype(instruction);
+	mips_error error = lwc(state, operands.d, &data);
+	if(error)
+		return error;
+	return mem_base(state, operands, true, 4, (uint8_t*)&data);
+}
+
 /// Load byte
 mips_error lb(mips_cpu_h state, uint32_t instruction)
 {
@@ -329,6 +435,25 @@ mips_error lw(mips_cpu_h state, uint32_t instruction)
 	return mips_Success;
 }
 
+/// Sets the delay state to execute a LWX instruction
+void set_lw_delay(mips_cpu_h state, unsigned dest, uint16_t value, bool shift)
+{
+	lw_data data;
+	data.dest = dest;
+	data.value = value;
+	data.shift = shift;
+	if(state->delay & 0xC)
+	{
+		state->delay |= 0x10;
+		state->lw2 = data;
+	}
+	else
+	{
+		state->delay |= 0x4;
+		state->lw1 = data;
+	}
+}
+
 /// Load word left
 mips_error lwl(mips_cpu_h state, uint32_t instruction)
 {
@@ -337,7 +462,8 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
 	if(error)
 		return error;
-	set_reg(state, operands.d, ((uint32_t)word << 16) | (state->reg[operands.d] & 0xFFFF));
+	set_reg(state, operands.d, state->reg[operands.d] & 0x0000FFFF);
+	set_lw_delay(state, operands.d, word, true);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -353,7 +479,8 @@ mips_error lwr(mips_cpu_h state, uint32_t instruction)
 	mips_error error = mips_mem_read(state->mem, addr, 2, (uint8_t*)&word);
 	if(error)
 		return error;
-	set_reg(state, operands.d, (uint32_t)word | (state->reg[operands.d] & 0xFFFF0000));
+	set_reg(state, operands.d, state->reg[operands.d] & 0xFFFF0000);
+	set_lw_delay(state, operands.d, word, true);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -437,6 +564,12 @@ mips_error jr(mips_cpu_h state, rtype operands)
 {
 	state->pc = state->reg[operands.s1];
 	return mips_Success;
+}
+
+/// System call
+mips_error syscall(mips_cpu_h state, rtype operands)
+{
+	return mips_ExceptionSystemCall;
 }
 
 /// Break
@@ -591,59 +724,59 @@ mips_error slt(mips_cpu_h state, rtype operands)
 }
 
 /// Map of R-type 'function' fields to function pointers
-static rtype_op rtype_ops[64] =
+static rtype_op_info rtype_ops[64] =
 {
 	/// 0000
-	&shift,
-	NULL,
-	&shift,
-	&shift,
+	{ &shift, "SLL" },
+	{ NULL },
+	{ &shift, "SRL" },
+	{ &shift, "SRA" },
 	/// 0001
-	&shift_var,
-	NULL,
-	&shift_var,
-	NULL,
+	{ &shift_var, "SLLV" },
+	{ NULL },
+	{ &shift_var, "SRLV" },
+	{ &shift_var, "SRAV" },
 	/// 0010
-	&jr,
-	NULL,
-	NULL,
-	NULL,
+	{ &jr, "JR" },
+	{ &jr, "JALR" },
+	{ NULL },
+	{ NULL },
 	/// 0011
-	&not_impl_r,
-	&breakpoint,
-	NULL,
-	NULL,
+	{ &syscall, "SYSCALL" },
+	{ &breakpoint, "BREAK" },
+	{ NULL },
+	{ NULL },
 	/// 0100
-	&mfhi,
-	&mthi,
-	&mflo,
-	&mtlo,
+	{ &mfhi, "MFHI" },
+	{ &mthi, "MTHI" },
+	{ &mflo, "MFLO" },
+	{ &mtlo, "MTLO" },
 	/// 0101
 	BLANK,
 	/// 0110
-	&mult,
-	&mult,
-	&_div,
-	&_div,
+	{ &mult, "MULT" },
+	{ &mult, "MULTU" },
+	{ &_div, "DIV" },
+	{ &_div, "DIVU" },
 	/// 0111
 	BLANK,
 	/// 1000
-	&add_sub,
-	&add_sub,
-	&add_sub,
-	&add_sub,
+	{ &add_sub, "ADD" },
+	{ &add_sub, "ADDU" },
+	{ &add_sub, "SUB" },
+	{ &add_sub, "SUBU" },
 	/// 1001
-	&bitwise,
-	&bitwise,
-	&bitwise,
-	&bitwise,
+	{ &bitwise, "AND" },
+	{ &bitwise, "OR" },
+	{ &bitwise, "XOR" },
+	{ &bitwise, "NOR" },
 	/// 1010
 	BLANK,
 	/// 1011
-	&slt,
-	&slt,
-	NULL,
-	NULL,
+	{ &slt, "SLT" },
+	{ &slt, "SLTU" },
+	{ NULL },
+	{ NULL },
 	/// 1100
 	BLANK,
 	BLANK,
@@ -657,7 +790,7 @@ mips_error do_rtype_op(mips_cpu_h state, uint32_t instruction)
 {
 	rtype operands;
 	operands = get_rtype(instruction);
-	rtype_op rtop = rtype_ops[operands.f];
+	rtype_op rtop = rtype_ops[operands.f].op;
 	if(rtop == NULL)
 		return mips_ExceptionInvalidInstruction;
 	return rtop(state, operands);
@@ -665,33 +798,33 @@ mips_error do_rtype_op(mips_cpu_h state, uint32_t instruction)
 
 /// The map of opcodes (6 bits) to operation function pointers
 /// A value of NULL here will throw a mips_ErrorInvalidInstruction
-static op operations[64] =
+static op_info operations[64] =
 {
 	/// 0000
-	&do_rtype_op,
-	&branch_zero,
-	&jump,
-	&jal,
+	{ &do_rtype_op, "R-type" },
+	{ &branch_zero, "Branch compare zero" },
+	{ &jump, "J" },
+	{ &jal, "JAL" },
 	/// 0001
-	&branch_var,
-	&branch_var,
-	&branch_zero,
-	&branch_zero,
+	{ &branch_var, "BEQ" },
+	{ &branch_var, "BNE" },
+	{ &branch_zero, "BLEZ" },
+	{ &branch_zero, "BGTZ" },
 	/// 0010
-	&addi,
-	&addi,
-	&slti,
-	&slti,
+	{ &addi, "ADDI" },
+	{ &addi, "ADDIU" },
+	{ &slti, "SLTI" },
+	{ &slti, "SLTIU" },
 	/// 0011
-	&bitwise_imm,
-	&bitwise_imm,
-	&bitwise_imm,
-	&lui,
-	/// 0100 - COPz
-	&not_impl,
-	&not_impl,
-	&not_impl,
-	&not_impl,
+	{ &bitwise_imm, "ANDI" },
+	{ &bitwise_imm, "ORI" },
+	{ &bitwise_imm, "XORI" },
+	{ &lui, "LUI" },
+	/// 0100
+	{ &copz, "COP0" },
+	{ &copz, "COP1" },
+	{ &copz, "COP2" },
+	{ &copz, "COP3" },
 	/// 0101
 	BLANK,
 	/// 0110
@@ -699,36 +832,105 @@ static op operations[64] =
 	/// 0111
 	BLANK,
 	/// 1000 - signed load
-	&lb,
-	&lh,
-	&lwl,
-	&lw,
+	{ &lb, "LB" },
+	{ &lh, "LH" },
+	{ &lwl, "LWL" },
+	{ &lw, "LW" },
 	/// 1001 - unsigned load
-	&lb,
-	&lh,
-	&lwr,
-	NULL,
+	{ &lb, "LBU" },
+	{ &lh, "LHU" },
+	{ &lwr, "LWR" },
+	{ NULL },
 	/// 1010
-	&sb,
-	&sh,
-	NULL,
-	&sw,
+	{ &sb, "SB" },
+	{ &sh, "SH" },
+	{ NULL },
+	{ &sw, "SW" },
 	/// 1011
 	BLANK,
-	/// 1100 - LWCz
-	&not_impl,
-	&not_impl,
-	&not_impl,
-	&not_impl,
+	/// 1100
+	{ &lwcz, "LWC0" },
+	{ &lwcz, "LWC1" },
+	{ &lwcz, "LWC2" },
+	{ &lwcz, "LWC3" },
 	/// 1101
 	BLANK,
-	/// 1110 - SWCz
-	&not_impl,
-	&not_impl,
-	&not_impl,
-	&not_impl,
+	/// 1110
+	{ &swcz, "SWC0" },
+	{ &swcz, "SWC1" },
+	{ &swcz, "SWC2" },
+	{ &swcz, "SWC3" },
 	/// 1111
 	BLANK
+};
+
+/// Delay by one step
+mips_error pre_jump(mips_cpu_h state)
+{
+	state->delay |= 0x2;
+	return mips_Success;
+}
+
+/// Performs the actual jump
+mips_error do_jump(mips_cpu_h state)
+{
+	state->pc = state->jump_addr;
+	return mips_Success;
+}
+
+/// Performs the action described by the lw_data object
+mips_error do_lwdata(mips_cpu_h state, lw_data data)
+{
+	uint32_t value = data.value;
+	if(data.shift)
+		value <<= 16;
+	set_reg(state, data.dest, value | state->reg[data.dest]);
+	return mips_Success;
+}
+
+/// Delay by one step
+mips_error pre_lw1(mips_cpu_h state)
+{
+	state->delay |= 0x8;
+	return mips_Success;
+}
+
+/// Performs the first queued LWX instruction
+mips_error do_lw1(mips_cpu_h state)
+{
+	return do_lwdata(state, state->lw1);
+}
+
+/// Delay by one step
+mips_error pre_lw2(mips_cpu_h state)
+{
+	state->delay |= 0x20;
+	return mips_Success;
+}
+
+/// Performs the second queued LWX instruction
+mips_error do_lw2(mips_cpu_h state)
+{
+	return do_lwdata(state, state->lw2);
+}
+
+/// Map of state flags to functions
+static state_op state_ops[32] =
+{
+	&pre_jump,
+	&do_jump,
+	&pre_lw1,
+	&do_lw1,
+	&pre_lw2,
+	&do_lw2,
+	NULL,
+	NULL,
+	0,0,0,0,
+	0,0,0,0,
+	0,0,0,0,
+	0,0,0,0,
+	0,0,0,0,
+	0,0,0,0
 };
 
 /// Creates a CPU state
@@ -807,19 +1009,34 @@ mips_error mips_cpu_step(mips_cpu_h state)
 		return memresult;
 
 	unsigned opcode = instruction >> 26;
-	op opr = operations[opcode];
+	op opr = operations[opcode].op;
 	if(opr == NULL)
 		return mips_ExceptionInvalidInstruction;
-	mips_error ret = opr(state, instruction);
-	if(!ret)
-		state->pc += sizeof(uint32_t);
-	return ret;
+
+	unsigned delay = state->delay;
+	mips_error ret;
+	int i;
+	for(i = 0; i < 32; i++)
+		if(delay & (1 << i))
+		{
+			state_op sop = state_ops[i];
+			if(sop != NULL)
+			{
+				state->delay = delay & ~(1 << i);
+				ret = sop(state);
+				if(ret != mips_Success)
+					return ret;
+			}
+		}
+
+	return opr(state, instruction);
 }
 
 /// Sets the debug level:
 ///   0: None
-///   1: Output instruction text
-///   2: Instruction text and register setting
+///   1: Undefined registers
+///   2: Instructions passed
+///   3: Register setting
 mips_error mips_cpu_set_debug_level(mips_cpu_h state,
 	unsigned level,
 	FILE *dest)
@@ -828,6 +1045,19 @@ mips_error mips_cpu_set_debug_level(mips_cpu_h state,
 		return mips_ErrorInvalidHandle;
 	state->debug = level;
 	state->output = dest;
+	return mips_Success;
+}
+
+/// Assigns the given coprocessor object to the given index
+mips_error mips_cpu_set_coprocessor(mips_cpu_h state,
+	unsigned index,
+	coprocessor cp)
+{
+	if(state == NULL)
+		return mips_ErrorInvalidHandle;
+	if(index > 3)
+		return mips_ErrorInvalidArgument;
+	state->coprocessor[index] = cp;
 	return mips_Success;
 }
 
