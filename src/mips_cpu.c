@@ -57,12 +57,14 @@ typedef mips_error (*rtype_op)(mips_cpu_h state, rtype operands);
 /// 'state' can be assumed valid
 typedef mips_error (*state_op)(mips_cpu_h state);
 
+/// Contains an operation function and its name
 typedef struct
 {
 	op op;
 	const char* name;
 } op_info;
 
+/// Contains an R-type function and its name
 typedef struct
 {
 	rtype_op op;
@@ -142,6 +144,7 @@ jtype get_jtype(uint32_t instr)
 	return ret;
 }
 
+/// Reverses the byte order of the given input
 uint32_t reverse_word(uint32_t word)
 {
 	uint32_t ret;
@@ -153,6 +156,7 @@ uint32_t reverse_word(uint32_t word)
 	return ret;
 }
 
+/// Reverses the byte order of the given input
 uint16_t reverse_half(uint16_t half)
 {
 	uint16_t ret;
@@ -163,6 +167,7 @@ uint16_t reverse_half(uint16_t half)
 	return ret;
 }
 
+/// Reverses the byte order of the given input
 void reverse_data(uint8_t* data, unsigned length)
 {
 	unsigned begin = 0;
@@ -215,18 +220,6 @@ void set_reg(mips_cpu_h state, unsigned index, uint32_t value)
 		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (0x%x)", index, (int32_t)value, value) + 1);
 }
 
-/// Dummy function for non-implemented instructions
-mips_error not_impl(mips_cpu_h state, uint32_t instruction)
-{
-	return mips_ErrorNotImplemented;
-}
-
-/// Dummy function for non-implemented R-type instruction
-mips_error not_impl_r(mips_cpu_h state, rtype operands)
-{
-	return mips_ErrorNotImplemented;
-}
-
 void set_branch_delay(mips_cpu_h state, uint32_t value)
 {
 	if(state->debug > 2)
@@ -238,15 +231,15 @@ void set_branch_delay(mips_cpu_h state, uint32_t value)
 void link(mips_cpu_h state, unsigned opcode, unsigned bit)
 {
 	if(opcode & bit)
-		set_reg(state, 31, state->pc + 4);
+		set_reg(state, 31, state->pc + 8);
 }
 
 /// Jump (and link)
 mips_error jump(mips_cpu_h state, uint32_t instruction)
 {
 	jtype operands = get_jtype(instruction);
-	state->pc += 4;
 	link(state, operands.opcode, 1);
+	state->pc += 4;
 	set_branch_delay(state, (state->pc & 0xF0000000) | ((int16_t)operands.imm << 2));
 	return mips_Success;
 }
@@ -256,34 +249,43 @@ mips_error jump(mips_cpu_h state, uint32_t instruction)
 mips_error branch_zero(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
-	int32_t value = (int32_t)state->reg[operands.s];
+	int32_t value = state->reg[operands.s];
 	bool result;
 	/// Combine the opcode and the final bit of the 'd' field
 	/// Use to determine exact instruction
+	char* fmt;
 	switch((operands.opcode << 1) + (operands.d & 1))
 	{
-	case 2: /// BLZ
+	case 2: /// BLTZ
 		result = value < 0;
+		fmt = "Test: $%d %d < 0\n";
 		break;
 	case 3: /// BGEZ
 		result = value >= 0;
+		fmt = "Test: $%d %d >= 0\n";
 		break;
 	case 12: /// BLEZ
 		result = value <= 0;
+		fmt = "Test: $%d %d <= 0\n";
 		break;
-	case 14: /// BGZ
+	case 14: /// BGTZ
 		result = value > 0;
+		fmt = "Test: $%d %d > 0\n";
 		break;
 	default:
 		return mips_ExceptionInvalidInstruction;
 	}
-	state->pc += 4;
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf, fmt, operands.s, value));
+	}
 	/// Use the first bit of the 'd' field
 	/// to determine if we need to link
 	/// The link happens regardless of whether the condition is true
 	link(state, operands.d, 0x20);
+	state->pc += 4;
 	if(result)
-		set_branch_delay(state, ((int16_t)operands.imm << 2) + 4);
+		set_branch_delay(state, (int16_t)operands.imm << 2);
 	return mips_Success;
 }
 
@@ -298,6 +300,13 @@ mips_error branch_var(mips_cpu_h state, uint32_t instruction)
 	/// otherwise BEQ
 	if(operands.opcode & 1)
 		result = !result;
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"Test: $%d %c= $%d - %s\n", operands.s,
+				(operands.opcode & 1) ? '!' : '=',
+				operands.d, result ? "TRUE" : "FALSE"));
+	}
 	if(result)
 		set_branch_delay(state, ((int16_t)operands.imm << 2) + 4);
 	state->pc += 4;
@@ -339,17 +348,17 @@ mips_error slti(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t value = state->reg[operands.s];
-	if(state->debug > 2)
-	{
-		debug(state, temp_buf, sprintf(temp_buf,
-				"Test ($%d) %d < %d\n", operands.s, value,
-				(int16_t)operands.imm));
-	}
 	bool result;
 	if(operands.opcode & 1)
 		result = value < operands.imm;
 	else
 		result = (int32_t)value < (int16_t)operands.imm;
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"Test ($%d) %d < %d - %s\n", operands.s, value,
+				(int16_t)operands.imm, result ? "TRUE" : "FALSE"));
+	}
 	set_reg(state, operands.d, (uint32_t)result);
 	state->pc += 4;
 	return mips_Success;
@@ -361,19 +370,29 @@ mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 	itype operands = get_itype(instruction);
 	uint32_t value = state->reg[operands.s];
 	uint32_t result;
+	char c;
 	switch(operands.opcode & 3)
 	{
 	case 0: /// ANDI
 		result = value & operands.imm;
+		c = '&';
 		break;
 	case 1: /// ORI
 		result = value | operands.imm;
+		c = '|';
 		break;
 	case 2: /// XORI
 		result = value ^ operands.imm;
+		c = '^';
 		break;
 	default:
 		return mips_ExceptionInvalidInstruction;
+	}
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"$%d = $%d %c 0x%x\n", operands.d,
+				operands.s, c, operands.imm));
 	}
 	set_reg(state, operands.d, result);
 	state->pc += 4;
@@ -385,18 +404,24 @@ mips_error lui(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	set_reg(state, operands.d, operands.imm << 16);
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"$%d = 0x%x\n", operands.d,
+				operands.imm << 16));
+	}
 	state->pc += 4;
 	return mips_Success;
 }
 
 /// Common function for most memory operations
-mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uint8_t* word)
+mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uint8_t* word, int offset)
 {
 	if(state->mem == NULL)
 		return mips_ErrorInvalidHandle;
 	mips_error error;
 	printf("%x %d %x %d\n", operands.imm, operands.s, (int16_t)operands.imm, (int16_t)operands.imm);
-	uint32_t addr = state->reg[operands.s] + (int16_t)operands.imm;
+	uint32_t addr = state->reg[operands.s] + (int16_t)operands.imm + offset;
 	if(state->debug > 2)
 	{
 		if(load)
@@ -421,6 +446,11 @@ mips_error copz(mips_cpu_h state, uint32_t instruction)
 	op cop = state->coprocessor[(instruction >> 26) & 3].cop;
 	if(cop == NULL)
 		return mips_ErrorNotImplemented;
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"    0x%x", instruction & 0x3FFFFFF));
+	}
 	return cop(state, instruction);
 }
 
@@ -432,7 +462,12 @@ mips_error lwcz(mips_cpu_h state, uint32_t instruction)
 		return mips_ErrorNotImplemented;
 	uint32_t data;
 	itype operands = get_itype(instruction);
-	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&data);
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf, "CP%d: ",
+				(instruction >> 26) & 3));
+	}
+	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&data, 0);
 	if(error)
 		return error;
 	return lwc(state, operands.d, &data);
@@ -449,7 +484,12 @@ mips_error swcz(mips_cpu_h state, uint32_t instruction)
 	mips_error error = lwc(state, operands.d, &data);
 	if(error)
 		return error;
-	return mem_base(state, operands, true, 4, (uint8_t*)&data);
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf, "CP%d: ",
+				(instruction >> 26) & 3));
+	}
+	return mem_base(state, operands, true, 4, (uint8_t*)&data, 0);
 }
 
 /// Load byte
@@ -457,7 +497,7 @@ mips_error lb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	int8_t word;
-	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word, 0);
 	if(error)
 		return error;
 	/// The fourth bit of the opcode determines whether to extend the sign bit
@@ -471,7 +511,7 @@ mips_error lh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	int16_t word;
-	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word, 0);
 	if(error)
 		return error;
 	/// The fourth bit of the opcode determines whether to extend the sign bit
@@ -485,7 +525,7 @@ mips_error lw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t word;
-	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&word, 0);
 	if(error)
 		return error;
 	set_reg(state, operands.d, word);
@@ -517,7 +557,7 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word;
-	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, 0);
 	if(error)
 		return error;
 	set_reg(state, operands.d, state->reg[operands.d] & 0x0000FFFF);
@@ -529,12 +569,9 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 /// Load word right
 mips_error lwr(mips_cpu_h state, uint32_t instruction)
 {
-	if(state->mem == NULL)
-		return mips_ErrorInvalidHandle;
 	itype operands = get_itype(instruction);
 	uint16_t word;
-	uint32_t addr = state->reg[operands.s] + (int16_t)operands.imm - 1;
-	mips_error error = mips_mem_read(state->mem, addr, 2, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, -1);
 	if(error)
 		return error;
 	set_reg(state, operands.d, state->reg[operands.d] & 0xFFFF0000);
@@ -547,8 +584,8 @@ mips_error lwr(mips_cpu_h state, uint32_t instruction)
 mips_error sb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
-	uint8_t word = (uint8_t)state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 1, &word);
+	uint8_t word = state->reg[operands.d];
+	mips_error error = mem_base(state, operands, false, 1, &word, 0);
 	if(error)
 		return error;
 	state->pc += 4;
@@ -559,8 +596,8 @@ mips_error sb(mips_cpu_h state, uint32_t instruction)
 mips_error sh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
-	uint16_t word = (uint8_t)state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 1, (uint8_t*)&word);
+	uint16_t word = state->reg[operands.d];
+	mips_error error = mem_base(state, operands, false, 1, (uint8_t*)&word, 0);
 	if(error)
 		return error;
 	state->pc += 4;
@@ -572,7 +609,31 @@ mips_error sw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t word = state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 4, (uint8_t*)&word);
+	mips_error error = mem_base(state, operands, false, 4, (uint8_t*)&word, 0);
+	if(error)
+		return error;
+	state->pc += 4;
+	return mips_Success;
+}
+
+/// Store word left
+mips_error swl(mips_cpu_h state, uint32_t instruction)
+{
+	itype operands = get_itype(instruction);
+	uint16_t word = state->reg[operands.d] >> 16;
+	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, 0);
+	if(error)
+		return error;
+	state->pc += 4;
+	return mips_Success;
+}
+
+/// Store word right
+mips_error swr(mips_cpu_h state, uint32_t instruction)
+{
+	itype operands = get_itype(instruction);
+	uint16_t word = state->reg[operands.d];
+	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, -1);
 	if(error)
 		return error;
 	state->pc += 4;
@@ -684,27 +745,17 @@ mips_error add_sub(mips_cpu_h state, rtype operands)
 				(operands.f & 2) ? '-' : '+', operands.s2));
 	}
 	uint32_t* regs = state->reg;
-	uint32_t result;
 	uint32_t v1 = regs[operands.s1];
 	uint32_t v2 = regs[operands.s2];
+	if(operands.f & 2)
+		v2 = -v2;
 	int32_t x = v1;
 	int32_t y = v2;
-	switch(operands.f & 3)
-	{
-	case 0: /// ADD
+	if(!(operands.f & 1))
 		if ((y > 0 && x > INT_MAX - y) ||
 			(y < 0 && x < INT_MIN - y))
 			return mips_ExceptionArithmeticOverflow;
-	case 1: /// ADDU
-		result = v1 + v2;
-		break;
-	case 2: /// SUB
-		result = x - y;
-		break;
-	case 3: /// SUBU
-		result = v1 - v2;
-	}
-	set_reg(state, operands.d, result);
+	set_reg(state, operands.d, v1 + v2);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -867,7 +918,7 @@ mips_error do_rtype_op(mips_cpu_h state, uint32_t instruction)
 		const char* name = rtop.name;
 		if(name == NULL)
 			name = "Invalid instruction";
-		debug(state, temp_buf, sprintf(temp_buf, "    %s\n", name));
+		debug(state, temp_buf, sprintf(temp_buf, "%s\n", name));
 	}
 	return rtop.op(state, operands);
 }
@@ -877,8 +928,8 @@ mips_error do_rtype_op(mips_cpu_h state, uint32_t instruction)
 static op_info operations[64] =
 {
 	/// 0000
-	{ &do_rtype_op, "R-type operation:" },
-	{ &branch_zero, "Branch compare zero" },
+	{ &do_rtype_op, "R-type:" },
+	{ &branch_zero, "BLTZ/BGEZ" },
 	{ &jump, "J" },
 	{ &jump, "JAL" },
 	/// 0001
@@ -920,12 +971,12 @@ static op_info operations[64] =
 	/// 1010
 	{ &sb, "SB" },
 	{ &sh, "SH" },
-	{ NULL, "SWL" },
+	{ &swl, "SWL" },
 	{ &sw, "SW" },
 	/// 1011
 	{ NULL },
 	{ NULL },
-	{ NULL, "SWR" },
+	{ &swr, "SWR" },
 	{ NULL },
 	/// 1100
 	{ &lwcz, "LWC0" },
@@ -1118,7 +1169,7 @@ mips_error mips_cpu_step(mips_cpu_h state)
 	if(opinfo.op == NULL)
 		return mips_ExceptionInvalidInstruction;
 
-	if(state->debug > 1)
+	if(state->debug > 1 && opcode > 0)
 	{
 		const char* name = opinfo.name;
 		if(name == NULL)
@@ -1197,6 +1248,8 @@ int main()
 {
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
 	mips_cpu_set_debug_level(state, 10, NULL);
+	uint32_t abc = 0xFFFFFFFF;
+	printf("%d\n", -abc);
 	mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	while(1)
 	{
