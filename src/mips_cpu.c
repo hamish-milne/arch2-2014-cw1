@@ -211,7 +211,7 @@ void debug(mips_cpu_h state, const char* buf, size_t bufsize)
 void set_reg(mips_cpu_h state, unsigned index, uint32_t value)
 {
 	state->reg[index] = index ? value : 0;
-	if(state->debug > 1 && state->output != NULL)
+	if(state->debug > 1)
 		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (0x%x)", index, (int32_t)value, value) + 1);
 }
 
@@ -230,7 +230,7 @@ mips_error not_impl_r(mips_cpu_h state, rtype operands)
 void set_branch_delay(mips_cpu_h state, uint32_t value)
 {
 	if(state->debug > 2)
-		debug(state, temp_buf, sprintf(temp_buf, "Delayed jump to 0x%x\n", value));
+		debug(state, temp_buf, sprintf(temp_buf, "$delay = 0x%x\n", value));
 	state->delay = (state->delay & ~0x2) | 0x1;
 	state->jump_addr = value;
 }
@@ -309,6 +309,12 @@ mips_error addi(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t value = state->reg[operands.s];
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"$%d = $%d + %d\n", operands.d, operands.s,
+				(int16_t)operands.imm));
+	}
 	uint32_t result;
 	if(!(operands.opcode & 1))
 	{
@@ -333,6 +339,12 @@ mips_error slti(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t value = state->reg[operands.s];
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"Test ($%d) %d < %d\n", operands.s, value,
+				(int16_t)operands.imm));
+	}
 	bool result;
 	if(operands.opcode & 1)
 		result = value < operands.imm;
@@ -383,7 +395,19 @@ mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uin
 	if(state->mem == NULL)
 		return mips_ErrorInvalidHandle;
 	mips_error error;
+	printf("%x %d %x %d\n", operands.imm, operands.s, (int16_t)operands.imm, (int16_t)operands.imm);
 	uint32_t addr = state->reg[operands.s] + (int16_t)operands.imm;
+	if(state->debug > 2)
+	{
+		if(load)
+			debug(state, temp_buf, sprintf(temp_buf,
+				"$%d = mem[0x%x : 0x%x]\n",
+				operands.d, addr, addr + length - 1));
+		else
+			debug(state, temp_buf, sprintf(temp_buf,
+				"mem[0x%x : 0x%x] = $%d\n",
+				addr, addr + length - 1, operands.d));
+	}
 	if(load)
 		error = mips_mem_read(state->mem, addr, length, word);
 	else
@@ -923,7 +947,6 @@ static op_info operations[64] =
 mips_error pre_jump(mips_cpu_h state)
 {
 	state->delay |= 0x2;
-	printf("d %x\n", state->delay);
 	return mips_Success;
 }
 
@@ -931,7 +954,7 @@ mips_error pre_jump(mips_cpu_h state)
 mips_error do_jump(mips_cpu_h state)
 {
 	if(state->debug > 2)
-		debug(state, temp_buf, sprintf(temp_buf, "Actual jump to 0x%x\n", state->jump_addr));
+		debug(state, temp_buf, sprintf(temp_buf, "$PC = 0x%x\n", state->jump_addr));
 	state->pc = state->jump_addr;
 	return mips_Success;
 }
@@ -1069,8 +1092,8 @@ mips_error mips_cpu_step(mips_cpu_h state)
 		if(delay & (1 << i))
 		{
 			state_op sop = state_ops[i];
-			if(state->debug > 3)
-				debug(state, temp_buf, sprintf(temp_buf, "State flag %d is set\n", i));
+			//if(state->debug > 3)
+			//	debug(state, temp_buf, sprintf(temp_buf, "State flag %d is set\n", i));
 			if(sop != NULL)
 			{
 				state->delay = delay & ~(1 << i);
@@ -1089,6 +1112,7 @@ mips_error mips_cpu_step(mips_cpu_h state)
 	if(memresult != mips_Success)
 		return memresult;
 
+	instruction = reverse_word(instruction);
 	unsigned opcode = instruction >> 26;
 	op_info opinfo = operations[opcode];
 	if(opinfo.op == NULL)
@@ -1160,7 +1184,7 @@ mips_error mips_load_file(mips_mem_h mem, const char* file)
 	mips_error error = mips_ErrorFileReadError;
 	if(!ferror(fp))
 	{
-		reverse_data(temp, len);
+		//reverse_data(temp, len);
 		error = mips_mem_write(mem, 0, len, temp);
 	}
 
@@ -1173,13 +1197,13 @@ int main()
 {
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
 	mips_cpu_set_debug_level(state, 10, NULL);
-	mips_load_file(state->mem, "fragments/f_addu-mips.bin");
-	mips_cpu_step(state);
-	mips_cpu_step(state);
-	mips_cpu_step(state);
-	mips_cpu_step(state);
-	mips_cpu_step(state);
-	mips_cpu_step(state);
-	mips_cpu_step(state);
+	mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
+	while(1)
+	{
+		if(mips_cpu_step(state))
+			printf("ERROR\n");
+		getchar();
+		//getchar();
+	}
 	return 0;
 }
