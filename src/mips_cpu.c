@@ -220,7 +220,7 @@ void set_reg(mips_cpu_h state, unsigned index, uint32_t value)
 {
 	state->reg[index] = index ? value : 0;
 	if(state->debug > 1)
-		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (0x%x)", index, (int32_t)value, value) + 1);
+		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (0x%x)\n", index, (int32_t)value, value));
 }
 
 /// Sets the delay state to jump to the given instruction
@@ -330,21 +330,15 @@ mips_error addi(mips_cpu_h state, uint32_t instruction)
 				"$%d = $%d + %d\n", operands.d, operands.s,
 				(int16_t)operands.imm));
 	}
-	uint32_t result;
+	int32_t x = value;
+	int32_t y = (int16_t)operands.imm;
 	if(!(operands.opcode & 1))
 	{
-		int32_t x = value;
-		int32_t y = (int16_t)operands.imm;
 		if ((y > 0 && x > INT_MAX - y) ||
 			(y < 0 && x < INT_MIN - y))
 			return mips_ExceptionArithmeticOverflow;
-		result = x + y;
 	}
-	else
-	{
-		result = value + operands.imm;
-	}
-	set_reg(state, operands.d, result);
+	set_reg(state, operands.d, x + y);
 	state->pc += 4;
 	return mips_Success;
 }
@@ -376,19 +370,20 @@ mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 	itype operands = get_itype(instruction);
 	uint32_t value = state->reg[operands.s];
 	uint32_t result;
+	uint16_t imm = operands.imm;
 	char c;
 	switch(operands.opcode & 3)
 	{
 	case 0: /// ANDI
-		result = value & operands.imm;
+		result = value & imm;
 		c = '&';
 		break;
 	case 1: /// ORI
-		result = value | operands.imm;
+		result = value | imm;
 		c = '|';
 		break;
 	case 2: /// XORI
-		result = value ^ operands.imm;
+		result = value ^ imm;
 		c = '^';
 		break;
 	default:
@@ -708,7 +703,7 @@ mips_error jr(mips_cpu_h state, rtype operands)
 /// System call
 mips_error syscall(mips_cpu_h state, rtype operands)
 {
-	return mips_ExceptionSystemCall;
+	return (mips_error)0x2006; //mips_ExceptionSystemCall;
 }
 
 /// Break
@@ -837,7 +832,7 @@ mips_error bitwise(mips_cpu_h state, rtype operands)
 	uint32_t v1 = regs[operands.s1];
 	uint32_t v2 = regs[operands.s2];
 	uint32_t result;
-	switch(operands.f)
+	switch(operands.f & 3)
 	{
 	case 0: /// AND
 		result = v1 & v2;
@@ -1151,7 +1146,7 @@ mips_error mips_cpu_set_register(
 		return mips_ErrorInvalidHandle;
 	if(index >= NUM_REGS)
 		return mips_ErrorInvalidArgument;
-	state->reg[index] = index ? value : 0;
+	set_reg(state, index, value);
 	return mips_Success;
 }
 
@@ -1178,6 +1173,14 @@ mips_error mips_cpu_get_pc(mips_cpu_h state, uint32_t *pc)
 	return mips_Success;
 }
 
+mips_error debug_exception(mips_cpu_h state, mips_error error)
+{
+	if(error && state->debug)
+		debug(state, temp_buf, sprintf(temp_buf,
+				"Exception: %s\n", exceptions[error & 15]));
+	return error;
+}
+
 /// Performs one step in the CPU
 mips_error mips_cpu_step(mips_cpu_h state)
 {
@@ -1202,21 +1205,21 @@ mips_error mips_cpu_step(mips_cpu_h state)
 					return ret;
 			}
 		}
-
-	printf("PC: %d\n", state->pc);
+	if(state->debug > 2)
+		printf("PC: %d\n", state->pc);
 	mips_error memresult = mips_mem_read(
 		state->mem,
 		state->pc,
 		sizeof(instruction),
 		(uint8_t*)&instruction);
 	if(memresult != mips_Success)
-		return memresult;
+		return debug_exception(state, memresult);
 
 	instruction = reverse_word(instruction);
 	unsigned opcode = instruction >> 26;
 	op_info opinfo = operations[opcode];
 	if(opinfo.op == NULL)
-		return mips_ExceptionInvalidInstruction;
+		return debug_exception(state, mips_ExceptionInvalidInstruction);
 
 	if(state->debug > 1 && opcode > 0)
 	{
@@ -1226,14 +1229,14 @@ mips_error mips_cpu_step(mips_cpu_h state)
 		debug(state, temp_buf, sprintf(temp_buf, "%s\n", name));
 	}
 
-	return opinfo.op(state, instruction);
+	return debug_exception(state, opinfo.op(state, instruction));
 }
 
 /// Sets the debug level:
 ///   0: None
-///   1: Undefined registers
+///   1: Undefined registers and exceptions
 ///   2: Instructions passed
-///   3: Register setting
+///   3: Register setting and PC
 mips_error mips_cpu_set_debug_level(mips_cpu_h state,
 	unsigned level,
 	FILE *dest)
@@ -1295,9 +1298,12 @@ mips_error mips_load_file(mips_mem_h mem, const char* file)
 
 int main()
 {
+	int i;
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
-	mips_cpu_set_debug_level(state, 10, NULL);
-	mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
+	//mips_cpu_set_debug_level(state, 10, NULL);
+	for(i = 0; i < 13; i++)
+		do_test(state, state->mem, i);
+	/*mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	mips_error error;
 	while(1)
 	{
@@ -1306,6 +1312,6 @@ int main()
 			printf("Exception: %s\n", exceptions[error & 0xF]);
 		getchar();
 		//getchar();
-	}
+	}*/
 	return 0;
 }
