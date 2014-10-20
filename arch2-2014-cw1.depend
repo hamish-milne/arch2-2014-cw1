@@ -53,7 +53,7 @@
 	<stdio.h>
 	<stdlib.h>
 
-1413684150 source:c:\users\hamish\documents\arch2-2014-cw1\src\mips_cpu.c
+1413759462 source:c:\users\hamish\documents\arch2-2014-cw1\src\mips_cpu.c
 	"mips_cpu.h"
 	"stdio.h"
 	"limits.h"
@@ -71,9 +71,10 @@
 	<stdio.h>
 	<stdlib.h>
 
-1413604049 source:c:\users\hamish\documents\arch2-2014-cw1\src\mips_test.c
+1413770292 source:c:\users\hamish\documents\arch2-2014-cw1\src\mips_test.c
 	"mips_test.h"
 	"stdio.h"
+	"stdbool.h"
 
 1413492112 c:\users\hamish\documents\arch2-2014-cw1\include\mips_test.h
 	"mips_cpu.h"
