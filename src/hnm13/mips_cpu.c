@@ -145,15 +145,27 @@ jtype get_jtype(uint32_t instr)
 }
 
 /// Reverses the byte order of the given input
-uint32_t reverse_word(uint32_t word)
+void reverse_word(uint32_t* word)
 {
 	uint32_t ret;
-	uint8_t *ip = (uint8_t*)&word + 4;
+	uint8_t *ip = (uint8_t*)word + 4;
 	uint8_t *op = (uint8_t*)&ret;
 	uint8_t *end = op + 4;
 	while(op < end)
 		*op++ = *--ip;
-	return ret;
+	*word = ret;
+}
+/*
+/// Reverses the byte order of the given input
+void reverse_dword(uint64_t* word)
+{
+	uint64_t ret;
+	uint8_t *ip = (uint8_t*)word + 8;
+	uint8_t *op = (uint8_t*)&ret;
+	uint8_t *end = op + 8;
+	while(op < end)
+		*op++ = *--ip;
+	*word = ret;
 }
 
 /// Reverses the byte order of the given input
@@ -166,7 +178,7 @@ uint16_t reverse_half(uint16_t half)
 	*(op + 1) = *ip;
 	return ret;
 }
-
+*/
 /// Reverses the byte order of the given input
 void reverse_data(uint8_t* data, unsigned length)
 {
@@ -684,7 +696,7 @@ mips_error shift(mips_cpu_h state, rtype operands)
 /// Shift variable
 mips_error shift_var(mips_cpu_h state, rtype operands)
 {
-	return shift_base(state, operands, state->reg[operands.s1]);
+	return shift_base(state, operands, state->reg[operands.s1] & 0x1F);
 }
 
 /// Jump to register (and link)
@@ -800,7 +812,13 @@ mips_error mult(mips_cpu_h state, rtype operands)
 	if(operands.f & 1)
 		state->hi_lo.full = (uint64_t)v1 * (uint64_t)v2;
 	else
-		state->hi_lo.full = (uint64_t)((int64_t)v1 * (int64_t)v2);
+		state->hi_lo.full = (int64_t)(int32_t)v1 * (int64_t)(int32_t)v2;
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"$HI, $LO = $%d * $%d\n",
+				operands.s1, operands.s2));
+	}
 	state->pc += 4;
 	return mips_Success;
 }
@@ -811,15 +829,22 @@ mips_error _div(mips_cpu_h state, rtype operands)
 	uint32_t* regs = state->reg;
 	uint32_t v1 = regs[operands.s1];
 	uint32_t v2 = regs[operands.s2];
+	bool zero = (v2 == 0 || v1 == INT_MIN);
 	if(operands.f & 1)
 	{
-		state->hi_lo.parts.lo = v1 / v2;
-		state->hi_lo.parts.hi = v1 % v2;
+		state->hi_lo.parts.lo = zero ? 0 : v1 / v2;
+		state->hi_lo.parts.hi = zero ? 0 : v1 % v2;
 	}
 	else
 	{
-		state->hi_lo.parts.lo = (uint32_t)((int32_t)v1 / (int32_t)v2);
-		state->hi_lo.parts.hi = (uint32_t)((int32_t)v1 % (int32_t)v2);
+		state->hi_lo.parts.lo = zero ? 0 : (uint32_t)((int32_t)v1 / (int32_t)v2);
+		state->hi_lo.parts.hi = zero ? 0 : (uint32_t)((int32_t)v1 % (int32_t)v2);
+	}
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"$LO = $%d / $%d\n$HI = $%d %% $%d\n",
+				operands.s1, operands.s2, operands.s1, operands.s2));
 	}
 	state->pc += 4;
 	return mips_Success;
@@ -864,10 +889,16 @@ mips_error slt(mips_cpu_h state, rtype operands)
 	/// The last bit of the function field
 	/// indicates whether to use an unsigned comparison
 	if(operands.f & 1)
-		result = (int32_t)v1 < (int32_t)v2;
-	else
 		result = v1 < v2;
+	else
+		result = (int32_t)v1 < (int32_t)v2;
 	set_reg(state, operands.d, (uint32_t)result);
+	if(state->debug > 2)
+	{
+		debug(state, temp_buf, sprintf(temp_buf,
+				"Test $%d < $%d - %s (%s)\n", operands.s1, operands.s2,
+				result ? "TRUE" : "FALSE", operands.f&1 ? "signed" : "unsigned"));
+	}
 	state->pc += 4;
 	return mips_Success;
 }
@@ -900,7 +931,7 @@ static rtype_op_info rtype_ops[64] =
 	{ &mthi, "MTHI" },
 	{ &mflo, "MFLO" },
 	{ &mtlo, "MTLO" },
-	/// 0101
+	/// 0101i
 	BLANK,
 	/// 0110
 	{ &mult, "MULT" },
@@ -920,13 +951,12 @@ static rtype_op_info rtype_ops[64] =
 	{ &bitwise, "XOR" },
 	{ &bitwise, "NOR" },
 	/// 1010
-	BLANK,
-	/// 1011
+	{ NULL },
+	{ NULL },
 	{ &slt, "SLT" },
 	{ &slt, "SLTU" },
-	{ NULL },
-	{ NULL },
-	/// 1100
+	/// 1011
+	BLANK,
 	BLANK,
 	BLANK,
 	BLANK,
@@ -1215,7 +1245,7 @@ mips_error mips_cpu_step(mips_cpu_h state)
 	if(memresult != mips_Success)
 		return debug_exception(state, memresult);
 
-	instruction = reverse_word(instruction);
+	reverse_word(&instruction);
 	unsigned opcode = instruction >> 26;
 	op_info opinfo = operations[opcode];
 	if(opinfo.op == NULL)
@@ -1300,8 +1330,8 @@ int main()
 {
 	int i;
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
-	//mips_cpu_set_debug_level(state, 10, NULL);
-	for(i = 0; i < 13; i++)
+	mips_cpu_set_debug_level(state, 3, NULL);
+	for(i = 20; i < 28; i++)
 		do_test(state, state->mem, i);
 	/*mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	mips_error error;

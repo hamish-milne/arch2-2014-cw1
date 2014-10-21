@@ -16,6 +16,7 @@
 					<Add option="-std=c++98" />
 					<Add option="-Wall" />
 					<Add option="-g" />
+					<Add option="-std=c99" />
 					<Add directory="include" />
 				</Compiler>
 			</Target>
@@ -53,10 +54,10 @@
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="makefile" />
-		<Unit filename="src/hnm13/mips_test.c">
+		<Unit filename="src/hnm13/mips_cpu.c">
 			<Option compilerVar="CC" />
 		</Unit>
-		<Unit filename="src/mips_cpu.c">
+		<Unit filename="src/hnm13/mips_test.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="src/shared/mips_mem_ram.cpp" />
