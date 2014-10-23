@@ -60,12 +60,25 @@
 		<Unit filename="src/hnm13/mips_test.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="src/hnm13/mips_util.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="src/hnm13/mips_util.h" />
 		<Unit filename="src/shared/mips_mem_ram.cpp" />
 		<Unit filename="src/shared/mips_test_framework.cpp" />
 		<Extensions>
 			<code_completion />
 			<envvars />
 			<debugger />
+			<DoxyBlocks>
+				<comment_style block="0" line="0" />
+				<doxyfile_project />
+				<doxyfile_build />
+				<doxyfile_warnings />
+				<doxyfile_output />
+				<doxyfile_dot />
+				<general />
+			</DoxyBlocks>
 		</Extensions>
 	</Project>
 </CodeBlocks_project_file>

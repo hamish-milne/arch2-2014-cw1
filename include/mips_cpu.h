@@ -32,25 +32,6 @@ struct mips_cpu_impl;
 */
 typedef struct mips_cpu_impl *mips_cpu_h;
 
-/// Signature for a general operation
-/// 'state' can be assumed valid
-typedef mips_error (*op)(mips_cpu_h state, uint32_t instruction);
-
-/// Signature for an I-type operation
-/// 'state' can be assumed valid
-typedef mips_error (*cop_load_store)(mips_cpu_h state, unsigned reg, uint32_t* data);
-
-typedef void (*debug_handle)(mips_cpu_h state, const char* message, size_t len);
-
-extern const char* exceptions[16];
-
-/// Struct for a set of coprocessor functions
-typedef struct
-{
-	op cop;
-	cop_load_store lwc, swc;
-} coprocessor;
-
 /*! Creates and initialises a new CPU instance.
 
 	The CPU should be bound to the given
@@ -156,10 +137,6 @@ mips_error mips_cpu_step(mips_cpu_h state);
 	any debug level if you don't want to.
 */
 mips_error mips_cpu_set_debug_level(mips_cpu_h state, unsigned level, FILE *dest);
-
-mips_error mips_cpu_set_debug_handler(mips_cpu_h state, debug_handle handle);
-
-mips_error mips_cpu_set_coprocessor(mips_cpu_h state, unsigned index, coprocessor cp);
 
 /*! Free all resources associated with state.
 

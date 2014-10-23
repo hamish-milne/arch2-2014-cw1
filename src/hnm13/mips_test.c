@@ -1,6 +1,7 @@
 #include "mips_test.h"
 #include "mips_cpu.h"
 #include "limits.h"
+#include "mips_util.h"
 #include <stdbool.h>
 
 typedef bool (*test_op)(mips_cpu_h state, mips_mem_h mem, unsigned index);
@@ -360,7 +361,57 @@ bool sb_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 
 bool lwl_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	return load_base(state, mem, 6, 0xBCDE);
+	mips_cpu_set_register(state, 3, 0x12345678);
+	return load_base(state, mem, 8, 0x789A5678);
+}
+
+bool lwr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	mips_cpu_set_register(state, 3, 0x12345678);
+	return load_base(state, mem, 9, 0x1234789A);
+}
+
+bool swl_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return store_base(state, mem, 6, 0x87654321, 0x12876578);
+}
+
+bool swr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return store_base(state, mem, 7, 0x87654321, 0x12432178);
+}
+
+bool branch_base(mips_cpu_h state, uint32_t value, uint32_t test, unsigned index)
+{
+	int i;
+	mips_error error = 0, last_error = 0;
+	uint32_t out, pcn;
+	mips_cpu_set_pc(state, 0);
+	mips_cpu_set_register(state, 1, 0);
+	mips_cpu_set_register(state, 2, value);
+	for(i = 0; i < 4; i++)
+	{
+		last_error = mips_cpu_step(state);
+		error |= last_error;
+	}
+	if(error)
+		return false;
+	mips_cpu_get_register(state, 1, &out);
+	if(index)
+		mips_cpu_get_register(state, 31, &pcn);
+	return (out == test) && (!index || pcn == 12);
+}
+
+bool link_base(mips_cpu_h state, unsigned reg, uint32_t pc)
+{
+	uint32_t out;
+	mips_cpu_get_register(state, reg, &out);
+	return out == pc;
+}
+
+bool jump_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return (branch_base(state, 0) == 0xB) && (!index || link_base(state, 31, 12));
 }
 
 typedef struct
@@ -419,10 +470,24 @@ static const test_info tests[56] =
 	{ &sh_test,    0, "SH",		{0xFFFF23A4, 0x21436587} },
 	{ &sb_test,    0, "SB",		{0xFFFF23A0, 0x21436587} },
 
-	{ &lwl_test,   0, "LWL",	{0xFFFF2388, 0xF0DEBC9A, 0x78563412} },
-	//{ &lwr_test,   0, "LWR",	{0xFFFF2398, 0xF0DEBC9A, 0x78563412} },
-	//{ &swl_test,   0, "SWL",	{0xFFFF23A8, 0xF0DEBC9A, 0x78563412} },
-	//{ &swr_test,   0, "SWR",	{0xFFFF23B8, 0xF0DEBC9A, 0x78563412} },
+	{ &lwl_test,   0, "LWL",	{0xFFFF2388, 0x78563412, 0xF0DEBC9A} },
+	{ &lwr_test,   0, "LWR",	{0xFFFF2398, 0x78563412, 0xF0DEBC9A} },
+	{ &swl_test,   0, "SWL",	{0xFFFF23A8, 0x78563412, 0xF0DEBC9A} },
+	{ &swr_test,   0, "SWR",	{0xFFFF23B8, 0x78563412, 0xF0DEBC9A} },
+
+	{ &jump_test,  0, "J",		{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &jump_test,  1, "JAL",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &jr_test,    0, "JR",		{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &jalr_test,  0, "JALR",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+
+	{ &beq_test,   0, "BEQ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bne_test,   0, "BNE",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bltz_test,  0, "BLTZ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bgez_test,  0, "BGEZ",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &blez_test,  0, "BLEZ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bgtz_test,  0, "BGTZ",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bltzal_test,0, "BLTZAL",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bgezal_test,0, "BGEZAL",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
 
 };
 

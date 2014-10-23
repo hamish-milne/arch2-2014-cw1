@@ -8,6 +8,7 @@
  **/
 
 #include "mips_cpu.h"
+#include "mips_util.h"
 #include "stdio.h"
 #include "limits.h"
 #include "stdbool.h"
@@ -17,14 +18,6 @@
 #define BUF_SIZE 256
 
 #define BLANK {0},{0},{0},{0}
-
-#ifndef ExceptionCoprocessorUnusable
-const mips_error mips_ExceptionCoprocessorUnusable = 0x2006;
-#endif // ExceptionCoprocessorUnusable
-
-#ifndef ExceptionSystemCall
-const mips_error mips_ExceptionSystemCall = 0x2007;
-#endif // ExceptionSystemCall
 
 /// Two words next to each other, the high and low parts
 typedef struct
@@ -269,7 +262,7 @@ mips_error jump(mips_cpu_h state, uint32_t instruction)
 	jtype operands = get_jtype(instruction);
 	link(state, operands.opcode, 1);
 	state->pc += 4;
-	set_branch_delay(state, (state->pc & 0xF0000000) | ((int16_t)operands.imm << 2));
+	set_branch_delay(state, ((state->pc + 4) & 0xF0000000) | (operands.imm << 2));
 	return mips_Success;
 }
 
@@ -478,13 +471,14 @@ mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uin
 		error = mips_mem_read(state->mem, new_addr, new_len, ptr);
 		if(error)
 			return error;
+		ptr += data_offset;
 		if(load)
 		{
 			while(length-- > 0)
 				*(word++) = *(ptr++);
 		} else {
 			while(length-- > 0)
-				*(data_offset + ptr++) = *(word++);
+				*(ptr++) = *(word++);
 			error = mips_mem_write(state->mem, new_addr, new_len, (uint8_t*)&data);
 		}
 	}
@@ -604,6 +598,7 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 	if(error)
 		return error;
 	reverse_half(&word);
+	printf("%x\n", word);
 	set_reg(state, operands.d, (state->reg[operands.d] & 0x0000FFFF) | ((uint32_t)word << 16));
 	advance_pc(state);
 	return mips_Success;
@@ -1094,6 +1089,7 @@ mips_cpu_h mips_cpu_create(mips_mem_h mem)
 	mips_cpu_h ret = malloc(sizeof(struct mips_cpu_impl));
 	*ret = cpu_empty;
 	ret->mem = mem;
+	ret->pcN = 4;
 	return ret;
 }
 
@@ -1109,6 +1105,7 @@ mips_error mips_cpu_reset(mips_cpu_h state)
 	state->mem = mem;
 	state->debug = debug;
 	state->debug_handle = dh;
+	state->pcN = 4;
 	return mips_Success;
 }
 
@@ -1151,6 +1148,7 @@ mips_error mips_cpu_set_pc(
 	if(state == NULL)
 		return mips_ErrorInvalidHandle;
 	state->pc = pc;
+	state->pcN = pc + 4;
 	return mips_Success;
 }
 
@@ -1276,7 +1274,7 @@ int main()
 	int i;
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
 	mips_cpu_set_debug_level(state, 3, NULL);
-	for(i = 28; i < 37; i++)
+	for(i = 40; i < 42; i++)
 		do_test(state, state->mem, i);
 	/*mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	mips_error error;
