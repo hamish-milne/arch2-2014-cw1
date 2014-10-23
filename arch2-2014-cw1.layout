@@ -8,32 +8,32 @@
 	</File>
 	<File name="include\mips_core.h" open="1" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="1549" topLine="0" />
+			<Cursor1 position="809" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="src\hnm13\mips_test.c" open="1" top="1" tabpos="4" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="src\hnm13\mips_test.c" open="1" top="0" tabpos="4" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="8717" topLine="245" />
+			<Cursor1 position="10429" topLine="361" />
 		</Cursor>
 	</File>
 	<File name="src\shared\mips_mem_ram.cpp" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="989" topLine="36" />
+			<Cursor1 position="989" topLine="0" />
 		</Cursor>
 	</File>
-	<File name="include\mips_mem.h" open="0" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="include\mips_mem.h" open="1" top="0" tabpos="6" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="0" topLine="55" />
+			<Cursor1 position="2939" topLine="55" />
 		</Cursor>
 	</File>
 	<File name="include\mips_test.h" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="5481" topLine="74" />
+			<Cursor1 position="5481" topLine="2" />
 		</Cursor>
 	</File>
-	<File name="src\hnm13\mips_cpu.c" open="1" top="0" tabpos="5" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="src\hnm13\mips_cpu.c" open="1" top="1" tabpos="5" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="24736" topLine="982" />
+			<Cursor1 position="15752" topLine="577" />
 		</Cursor>
 	</File>
 	<File name="include\mips_cpu.h" open="0" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">

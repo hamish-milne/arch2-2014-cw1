@@ -18,6 +18,14 @@
 
 #define BLANK {0},{0},{0},{0}
 
+#ifndef ExceptionCoprocessorUnusable
+const mips_error mips_ExceptionCoprocessorUnusable = 0x2006;
+#endif // ExceptionCoprocessorUnusable
+
+#ifndef ExceptionSystemCall
+const mips_error mips_ExceptionSystemCall = 0x2007;
+#endif // ExceptionSystemCall
+
 /// Two words next to each other, the high and low parts
 typedef struct
 {
@@ -92,13 +100,7 @@ struct mips_cpu_impl
 	/// Exception handler locations
 	uint32_t exception[16];
 	/// Program counter
-	uint32_t pc;
-	/// Delay state
-	unsigned delay;
-	/// Delayed jump address
-	uint32_t jump_addr;
-	/// Saved values for LWL and LWR
-	lw_data lw1, lw2;
+	uint32_t pc, pcN;
 	/// The $HI and $LO registers
 	long_reg hi_lo;
 	/// Coprocessor settings
@@ -155,6 +157,16 @@ void reverse_word(uint32_t* word)
 		*op++ = *--ip;
 	*word = ret;
 }
+
+/// Reverses the byte order of the given input
+void reverse_half(uint16_t* half)
+{
+	uint8_t* ptr = (uint8_t*)half;
+	uint8_t temp = *ptr;
+	*ptr = *(ptr + 1);
+	*(ptr + 1) = temp;
+}
+
 /*
 /// Reverses the byte order of the given input
 void reverse_dword(uint64_t* word)
@@ -168,16 +180,7 @@ void reverse_dword(uint64_t* word)
 	*word = ret;
 }
 
-/// Reverses the byte order of the given input
-uint16_t reverse_half(uint16_t half)
-{
-	uint16_t ret;
-	uint8_t *ip = (uint8_t*)&half;
-	uint8_t *op = (uint8_t*)&ret;
-	*op = *(ip + 1);
-	*(op + 1) = *ip;
-	return ret;
-}
+
 */
 /// Reverses the byte order of the given input
 void reverse_data(uint8_t* data, unsigned length)
@@ -235,14 +238,22 @@ void set_reg(mips_cpu_h state, unsigned index, uint32_t value)
 		debug(state, temp_buf, sprintf(temp_buf, "$%d = %d (0x%x)\n", index, (int32_t)value, value));
 }
 
+void advance_pc(mips_cpu_h state)
+{
+	state->pc = state->pcN;
+	state->pcN = state->pc + 4;
+}
+
 /// Sets the delay state to jump to the given instruction
 /// Overrides any existing jump delay state
 void set_branch_delay(mips_cpu_h state, uint32_t value)
 {
 	if(state->debug > 2)
-		debug(state, temp_buf, sprintf(temp_buf, "$delay = 0x%x\n", value));
-	state->delay = (state->delay & ~0x2) | 0x1;
-	state->jump_addr = value;
+		debug(state, temp_buf, sprintf(temp_buf, "$pcN = 0x%x\n", value));
+	//state->delay = (state->delay & ~0x2) | 0x1;
+	//state->jump_addr = value;
+	state->pc = state->pcN;
+	state->pcN = value;
 }
 
 /// Sets the link register if (opcode & bit) is true
@@ -301,9 +312,9 @@ mips_error branch_zero(mips_cpu_h state, uint32_t instruction)
 	/// to determine if we need to link
 	/// The link happens regardless of whether the condition is true
 	link(state, operands.d, 0x20);
-	state->pc += 4;
+	advance_pc(state);
 	if(result)
-		set_branch_delay(state, (int16_t)operands.imm << 2);
+		set_branch_delay(state, state->pc + ((int16_t)operands.imm << 2));
 	return mips_Success;
 }
 
@@ -326,8 +337,7 @@ mips_error branch_var(mips_cpu_h state, uint32_t instruction)
 				operands.d, result ? "TRUE" : "FALSE"));
 	}
 	if(result)
-		set_branch_delay(state, ((int16_t)operands.imm << 2) + 4);
-	state->pc += 4;
+		set_branch_delay(state, state->pc + ((int16_t)operands.imm << 2));
 	return mips_Success;
 }
 
@@ -351,7 +361,7 @@ mips_error addi(mips_cpu_h state, uint32_t instruction)
 			return mips_ExceptionArithmeticOverflow;
 	}
 	set_reg(state, operands.d, x + y);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -372,7 +382,7 @@ mips_error slti(mips_cpu_h state, uint32_t instruction)
 				(int16_t)operands.imm, result ? "TRUE" : "FALSE"));
 	}
 	set_reg(state, operands.d, (uint32_t)result);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -408,7 +418,7 @@ mips_error bitwise_imm(mips_cpu_h state, uint32_t instruction)
 				operands.s, c, operands.imm));
 	}
 	set_reg(state, operands.d, result);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -423,18 +433,20 @@ mips_error lui(mips_cpu_h state, uint32_t instruction)
 				"$%d = 0x%x\n", operands.d,
 				operands.imm << 16));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
 /// Common function for most memory operations
-mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uint8_t* word, int offset)
+mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uint8_t* word, int offset, int align)
 {
 	if(state->mem == NULL)
 		return mips_ErrorInvalidHandle;
 	mips_error error;
-	printf("%x %d %x %d\n", operands.imm, operands.s, (int16_t)operands.imm, (int16_t)operands.imm);
+	//printf("%x %d %x %d\n", operands.imm, operands.s, (int16_t)operands.imm, (int16_t)operands.imm);
 	uint32_t addr = state->reg[operands.s] + (int16_t)operands.imm + offset;
+	if((addr % align) || (length % align))
+		return mips_ExceptionInvalidAlignment;
 	if(state->debug > 2)
 	{
 		if(load)
@@ -450,6 +462,32 @@ mips_error mem_base(mips_cpu_h state, itype operands, bool load, int length, uin
 		error = mips_mem_read(state->mem, addr, length, word);
 	else
 		error = mips_mem_write(state->mem, addr, length, word);
+	uint32_t new_addr, new_len, data_offset;
+	uint64_t data;
+	uint8_t* ptr;
+	if(error == mips_ExceptionInvalidAlignment)
+	{
+		data_offset = addr % 4;
+		new_addr = addr - data_offset;
+		new_len = length + data_offset;
+		if(new_len % 4)
+			new_len += 4 - (new_len % 4);
+		if(new_len > 8)
+			return error;
+		ptr = (uint8_t*)&data;
+		error = mips_mem_read(state->mem, new_addr, new_len, ptr);
+		if(error)
+			return error;
+		if(load)
+		{
+			while(length-- > 0)
+				*(word++) = *(ptr++);
+		} else {
+			while(length-- > 0)
+				*(data_offset + ptr++) = *(word++);
+			error = mips_mem_write(state->mem, new_addr, new_len, (uint8_t*)&data);
+		}
+	}
 	return error;
 }
 
@@ -464,7 +502,10 @@ mips_error copz(mips_cpu_h state, uint32_t instruction)
 		debug(state, temp_buf, sprintf(temp_buf,
 				"    0x%x", instruction & 0x3FFFFFF));
 	}
-	return cop(state, instruction);
+	mips_error error = cop(state, instruction);
+	if(!error)
+		advance_pc(state);
+	return error;
 }
 
 /// Load word to a coprocessor
@@ -480,10 +521,13 @@ mips_error lwcz(mips_cpu_h state, uint32_t instruction)
 		debug(state, temp_buf, sprintf(temp_buf, "CP%d: ",
 				(instruction >> 26) & 3));
 	}
-	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&data, 0);
+	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&data, 0, 4);
 	if(error)
 		return error;
-	return lwc(state, operands.d, &data);
+	error = lwc(state, operands.d, &data);
+	if(!error)
+		advance_pc(state);
+	return error;
 }
 
 /// Store word from a coprocessor
@@ -502,7 +546,10 @@ mips_error swcz(mips_cpu_h state, uint32_t instruction)
 		debug(state, temp_buf, sprintf(temp_buf, "CP%d: ",
 				(instruction >> 26) & 3));
 	}
-	return mem_base(state, operands, true, 4, (uint8_t*)&data, 0);
+	error = mem_base(state, operands, true, 4, (uint8_t*)&data, 0, 4);
+	if(!error)
+		advance_pc(state);
+	return error;
 }
 
 /// Load byte
@@ -510,12 +557,12 @@ mips_error lb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	int8_t word;
-	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word, 0);
+	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word, 0, 1);
 	if(error)
 		return error;
 	/// The fourth bit of the opcode determines whether to extend the sign bit
 	set_reg(state, operands.d, (operands.opcode & 4) ? (uint8_t)word : word);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -523,13 +570,14 @@ mips_error lb(mips_cpu_h state, uint32_t instruction)
 mips_error lh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
-	int16_t word;
-	mips_error error = mem_base(state, operands, true, 1, (uint8_t*)&word, 0);
+	uint16_t word;
+	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, 0, 2);
 	if(error)
 		return error;
+	reverse_half(&word);
 	/// The fourth bit of the opcode determines whether to extend the sign bit
-	set_reg(state, operands.d, (operands.opcode & 4) ? (uint16_t)word : word);
-	state->pc += 4;
+	set_reg(state, operands.d, (operands.opcode & 4) ? word : (int16_t)word);
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -538,31 +586,13 @@ mips_error lw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t word;
-	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&word, 0);
+	mips_error error = mem_base(state, operands, true, 4, (uint8_t*)&word, 0, 4);
 	if(error)
 		return error;
+	reverse_word(&word);
 	set_reg(state, operands.d, word);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
-}
-
-/// Sets the delay state to execute a LWX instruction
-void set_lw_delay(mips_cpu_h state, unsigned dest, uint16_t value, bool shift)
-{
-	lw_data data;
-	data.dest = dest;
-	data.value = value;
-	data.shift = shift;
-	if(state->delay & 0xC)
-	{
-		state->delay |= 0x10;
-		state->lw2 = data;
-	}
-	else
-	{
-		state->delay |= 0x4;
-		state->lw1 = data;
-	}
 }
 
 /// Load word left
@@ -570,12 +600,12 @@ mips_error lwl(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word;
-	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, 0);
+	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, 0, 1);
 	if(error)
 		return error;
-	set_reg(state, operands.d, state->reg[operands.d] & 0x0000FFFF);
-	set_lw_delay(state, operands.d, word, true);
-	state->pc += 4;
+	reverse_half(&word);
+	set_reg(state, operands.d, (state->reg[operands.d] & 0x0000FFFF) | ((uint32_t)word << 16));
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -584,12 +614,12 @@ mips_error lwr(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word;
-	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, -1);
+	mips_error error = mem_base(state, operands, true, 2, (uint8_t*)&word, -1, 1);
 	if(error)
 		return error;
-	set_reg(state, operands.d, state->reg[operands.d] & 0xFFFF0000);
-	set_lw_delay(state, operands.d, word, true);
-	state->pc += 4;
+	reverse_half(&word);
+	set_reg(state, operands.d, (state->reg[operands.d] & 0xFFFF0000) | word);
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -598,10 +628,10 @@ mips_error sb(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint8_t word = state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 1, &word, 0);
+	mips_error error = mem_base(state, operands, false, 1, &word, 0, 1);
 	if(error)
 		return error;
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -610,10 +640,11 @@ mips_error sh(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word = state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 1, (uint8_t*)&word, 0);
+	reverse_half(&word);
+	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, 0, 2);
 	if(error)
 		return error;
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -622,10 +653,11 @@ mips_error sw(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint32_t word = state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 4, (uint8_t*)&word, 0);
+	reverse_word(&word);
+	mips_error error = mem_base(state, operands, false, 4, (uint8_t*)&word, 0, 4);
 	if(error)
 		return error;
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -634,10 +666,11 @@ mips_error swl(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word = state->reg[operands.d] >> 16;
-	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, 0);
+	reverse_half(&word);
+	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, 0, 1);
 	if(error)
 		return error;
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -646,10 +679,11 @@ mips_error swr(mips_cpu_h state, uint32_t instruction)
 {
 	itype operands = get_itype(instruction);
 	uint16_t word = state->reg[operands.d];
-	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, -1);
+	reverse_half(&word);
+	mips_error error = mem_base(state, operands, false, 2, (uint8_t*)&word, -1, 1);
 	if(error)
 		return error;
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -683,7 +717,7 @@ mips_error shift_base(mips_cpu_h state, rtype operands, uint32_t shift)
 				c, c, shift, s_str));
 	}
 	set_reg(state, operands.d, result);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -708,14 +742,13 @@ mips_error jr(mips_cpu_h state, rtype operands)
 	if(val & 0x3)
 		return mips_ExceptionInvalidAlignment;
 	set_branch_delay(state, val);
-	state->pc += 4;
 	return mips_Success;
 }
 
 /// System call
 mips_error syscall(mips_cpu_h state, rtype operands)
 {
-	return (mips_error)0x2006; //mips_ExceptionSystemCall;
+	return mips_ExceptionSystemCall;
 }
 
 /// Break
@@ -733,7 +766,7 @@ mips_error mfhi(mips_cpu_h state, rtype operands)
 		debug(state, temp_buf, sprintf(temp_buf,
 				"$%d = $HI\n", operands.d));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -746,7 +779,7 @@ mips_error mthi(mips_cpu_h state, rtype operands)
 		debug(state, temp_buf, sprintf(temp_buf,
 				"$HI = $%d\n", operands.s1));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -759,7 +792,7 @@ mips_error mflo(mips_cpu_h state, rtype operands)
 		debug(state, temp_buf, sprintf(temp_buf,
 				"$%d = $LO\n", operands.d));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -772,7 +805,7 @@ mips_error mtlo(mips_cpu_h state, rtype operands)
 		debug(state, temp_buf, sprintf(temp_buf,
 				"$LO = $%d\n", operands.s1));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -797,7 +830,7 @@ mips_error add_sub(mips_cpu_h state, rtype operands)
 			(y < 0 && x < INT_MIN - y))
 			return mips_ExceptionArithmeticOverflow;
 	set_reg(state, operands.d, v1 + v2);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -819,7 +852,7 @@ mips_error mult(mips_cpu_h state, rtype operands)
 				"$HI, $LO = $%d * $%d\n",
 				operands.s1, operands.s2));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -846,7 +879,7 @@ mips_error _div(mips_cpu_h state, rtype operands)
 				"$LO = $%d / $%d\n$HI = $%d %% $%d\n",
 				operands.s1, operands.s2, operands.s1, operands.s2));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -875,7 +908,7 @@ mips_error bitwise(mips_cpu_h state, rtype operands)
 		return mips_ExceptionInvalidInstruction;
 	}
 	set_reg(state, operands.d, result);
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -899,7 +932,7 @@ mips_error slt(mips_cpu_h state, rtype operands)
 				"Test $%d < $%d - %s (%s)\n", operands.s1, operands.s2,
 				result ? "TRUE" : "FALSE", operands.f&1 ? "signed" : "unsigned"));
 	}
-	state->pc += 4;
+	advance_pc(state);
 	return mips_Success;
 }
 
@@ -1053,78 +1086,7 @@ static op_info operations[64] =
 	BLANK
 };
 
-/// Delay by one step
-mips_error pre_jump(mips_cpu_h state)
-{
-	state->delay |= 0x2;
-	return mips_Success;
-}
-
-/// Performs the actual jump
-mips_error do_jump(mips_cpu_h state)
-{
-	if(state->debug > 2)
-		debug(state, temp_buf, sprintf(temp_buf, "$PC = 0x%x\n", state->jump_addr));
-	state->pc = state->jump_addr;
-	return mips_Success;
-}
-
-/// Performs the action described by the lw_data object
-mips_error do_lwdata(mips_cpu_h state, lw_data data)
-{
-	uint32_t value = data.value;
-	if(data.shift)
-		value <<= 16;
-	set_reg(state, data.dest, value | state->reg[data.dest]);
-	return mips_Success;
-}
-
-/// Delay by one step
-mips_error pre_lw1(mips_cpu_h state)
-{
-	state->delay |= 0x8;
-	return mips_Success;
-}
-
-/// Performs the first queued LWX instruction
-mips_error do_lw1(mips_cpu_h state)
-{
-	return do_lwdata(state, state->lw1);
-}
-
-/// Delay by one step
-mips_error pre_lw2(mips_cpu_h state)
-{
-	state->delay |= 0x20;
-	return mips_Success;
-}
-
-/// Performs the second queued LWX instruction
-mips_error do_lw2(mips_cpu_h state)
-{
-	return do_lwdata(state, state->lw2);
-}
-
-/// Map of state flags to functions
-static state_op state_ops[32] =
-{
-	&pre_jump,
-	&do_jump,
-	&pre_lw1,
-	&do_lw1,
-	&pre_lw2,
-	&do_lw2,
-	NULL,
-	NULL,
-	0,0,0,0,
-	0,0,0,0,
-	0,0,0,0,
-	0,0,0,0,
-	0,0,0,0,
-	0,0,0,0
-};
-
-static struct mips_cpu_impl cpu_empty = {0};
+static const struct mips_cpu_impl cpu_empty = {0};
 
 /// Creates a CPU state
 mips_cpu_h mips_cpu_create(mips_mem_h mem)
@@ -1218,23 +1180,6 @@ mips_error mips_cpu_step(mips_cpu_h state)
 	if(state == NULL || state->mem == NULL)
 		return mips_ErrorInvalidHandle;
 
-	unsigned delay = state->delay;
-	mips_error ret;
-	int i;
-	for(i = 0; i < 32; i++)
-		if(delay & (1 << i))
-		{
-			state_op sop = state_ops[i];
-			//if(state->debug > 3)
-			//	debug(state, temp_buf, sprintf(temp_buf, "State flag %d is set\n", i));
-			if(sop != NULL)
-			{
-				state->delay = delay & ~(1 << i);
-				ret = sop(state);
-				if(ret != mips_Success)
-					return ret;
-			}
-		}
 	if(state->debug > 2)
 		printf("PC: %d\n", state->pc);
 	mips_error memresult = mips_mem_read(
@@ -1331,7 +1276,7 @@ int main()
 	int i;
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
 	mips_cpu_set_debug_level(state, 3, NULL);
-	for(i = 20; i < 28; i++)
+	for(i = 28; i < 37; i++)
 		do_test(state, state->mem, i);
 	/*mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	mips_error error;

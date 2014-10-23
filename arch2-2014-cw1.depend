@@ -67,7 +67,7 @@
 1413492112 c:\users\hamish\documents\arch2-2014-cw1\include\mips_mem.h
 	"mips_core.h"
 
-1413579841 c:\users\hamish\documents\arch2-2014-cw1\include\mips_core.h
+1413999610 c:\users\hamish\documents\arch2-2014-cw1\include\mips_core.h
 	<stdint.h>
 	<stdio.h>
 	<stdlib.h>
@@ -100,13 +100,13 @@
 	"limits.h"
 	<stdbool.h>
 
-1413858153 source:c:\users\hamish\documents\arch2-2014-cw1\src\hnm13\mips_test.c
+1414033300 source:c:\users\hamish\documents\arch2-2014-cw1\src\hnm13\mips_test.c
 	"mips_test.h"
 	"mips_cpu.h"
 	"limits.h"
 	<stdbool.h>
 
-1413858212 source:c:\users\hamish\documents\arch2-2014-cw1\src\hnm13\mips_cpu.c
+1414034044 source:c:\users\hamish\documents\arch2-2014-cw1\src\hnm13\mips_cpu.c
 	"mips_cpu.h"
 	"stdio.h"
 	"limits.h"

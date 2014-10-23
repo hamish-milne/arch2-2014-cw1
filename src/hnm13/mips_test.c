@@ -3,7 +3,7 @@
 #include "limits.h"
 #include <stdbool.h>
 
-typedef bool (*test_op)(mips_cpu_h state, unsigned index);
+typedef bool (*test_op)(mips_cpu_h state, mips_mem_h mem, unsigned index);
 typedef bool (*rtype_test_op)(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error);
 typedef bool (*hilo_test_op)(uint32_t a, uint32_t b, uint64_t out, mips_error error);
 
@@ -187,7 +187,7 @@ static const uint32_t shift_test_values[NUM_VALUES] =
 	0, 1, 2, 3, 4
 };
 
-bool rtype_test(mips_cpu_h state, unsigned index)
+bool rtype_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j;
 	bool pass = true;
@@ -210,7 +210,7 @@ bool rtype_test(mips_cpu_h state, unsigned index)
 	return pass;
 }
 
-bool imm_test_base(mips_cpu_h state, unsigned index, const uint32_t* values, const rtype_test_op* tests)
+bool imm_test_base(mips_cpu_h state, mips_mem_h mem, unsigned index, const uint32_t* values, const rtype_test_op* tests)
 {
 	int i, j;
 	bool pass = true;
@@ -232,17 +232,17 @@ bool imm_test_base(mips_cpu_h state, unsigned index, const uint32_t* values, con
 	return pass;
 }
 
-bool itype_test(mips_cpu_h state, unsigned index)
+bool itype_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	return imm_test_base(state, index, imm_test_values, itype_tests);
+	return imm_test_base(state, mem, index, imm_test_values, itype_tests);
 }
 
-bool shift_test(mips_cpu_h state, unsigned index)
+bool shift_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	return imm_test_base(state, index, shift_test_values, shift_tests);
+	return imm_test_base(state, mem, index, shift_test_values, shift_tests);
 }
 
-bool hilo_test(mips_cpu_h state, unsigned index)
+bool hilo_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j;
 	uint32_t v1, v2, o1, o2;
@@ -275,7 +275,7 @@ bool hilo_test(mips_cpu_h state, unsigned index)
 	return pass;
 }
 
-bool lui_test(mips_cpu_h state, unsigned index)
+bool lui_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i;
 	uint32_t v, out;
@@ -287,9 +287,80 @@ bool lui_test(mips_cpu_h state, unsigned index)
 		mips_cpu_set_pc(state, i << 2);
 		error = mips_cpu_step(state);
 		mips_cpu_get_register(state, 3, &out);
-		pass &= (out == v);
+		pass &= !error && (out == v);
 	}
 	return pass;
+}
+
+bool load_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t value)
+{
+	mips_cpu_set_pc(state, 0);
+	mips_cpu_set_register(state, 1, offset);
+	if(mips_cpu_step(state))
+		return false;
+	uint32_t out = 0;
+	mips_cpu_get_register(state, 3, &out);
+	printf("%x\n", out);
+	return (out == value);
+}
+
+bool lw_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 5, 0x87654321);
+}
+
+bool lh_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 7, 0xffff8765);
+}
+
+bool lb_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 8, 0xffffff87);
+}
+
+bool lhu_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 7, 0x00008765);
+}
+
+bool lbu_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 8, 0x00000087);
+}
+
+bool store_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t store, uint32_t value)
+{
+	mips_cpu_set_pc(state, 0);
+	mips_cpu_set_register(state, 1, offset);
+	mips_cpu_set_register(state, 3, store);
+	if(mips_cpu_step(state))
+		return false;
+	uint32_t out = 0;
+	mips_mem_read(mem, 4, 4, (uint8_t*)&out);
+	reverse_word(&out);
+	printf("%x\n", out);
+	return (out == value);
+}
+
+bool sw_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return store_base(state, mem, 5, 0x12345678, 0x12345678);
+}
+
+bool sh_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return store_base(state, mem, 7, 0x12345678, 0x87655678);
+}
+
+bool sb_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return store_base(state, mem, 8, 0x12345678, 0x87654378);
+}
+
+bool lwl_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return load_base(state, mem, 6, 0xBCDE);
 }
 
 typedef struct
@@ -338,20 +409,20 @@ static const test_info tests[56] =
 
 	{ &lui_test,   0, "LUI",	{0x0000033C, 0x0100033C, 0xFF7F033C, 0x0080033C, 0xFFFF033C} },
 
-	{ &lw_test,    0, "LW",		{} },
-	{ &lh_test,    0, "LH",		{} },
-	{ &lb_test,    0, "LB",		{} },
-	{ &lhu_test,   0, "LHU",	{} },
-	{ &lbu_test,   0, "LBU",	{} },
+	{ &lw_test,    0, "LW",		{0xFFFF238C, 0x21436587} },
+	{ &lh_test,    0, "LH",		{0xFFFF2384, 0x21436587} },
+	{ &lb_test,    0, "LB",		{0xFFFF2380, 0x21436587} },
+	{ &lhu_test,   0, "LHU",	{0xFFFF2394, 0x21436587} },
+	{ &lbu_test,   0, "LBU",	{0xFFFF2390, 0x21436587} },
 
-	{ &sw_test,    0, "SW",		{} },
-	{ &sh_test,    0, "SH",		{} },
-	{ &sb_test,    0, "SB",		{} },
+	{ &sw_test,    0, "SW",		{0xFFFF23AC, 0x21436587} },
+	{ &sh_test,    0, "SH",		{0xFFFF23A4, 0x21436587} },
+	{ &sb_test,    0, "SB",		{0xFFFF23A0, 0x21436587} },
 
-	{ &lwl_test,   0, "LWL",	{} },
-	{ &lwr_test,   0, "LWR",	{} },
-	{ &swl_test,   0, "SWL",	{} },
-	{ &swr_test,   0, "SWR",	{} },
+	{ &lwl_test,   0, "LWL",	{0xFFFF2388, 0xF0DEBC9A, 0x78563412} },
+	//{ &lwr_test,   0, "LWR",	{0xFFFF2398, 0xF0DEBC9A, 0x78563412} },
+	//{ &swl_test,   0, "SWL",	{0xFFFF23A8, 0xF0DEBC9A, 0x78563412} },
+	//{ &swr_test,   0, "SWR",	{0xFFFF23B8, 0xF0DEBC9A, 0x78563412} },
 
 };
 
@@ -361,6 +432,6 @@ void do_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 	printf("Doing test %s\n", info.name);
 	mips_mem_write(mem, 0,
 					sizeof(info.data), (uint8_t*)info.data);
-	printf("%d\n", info.test(state, info.index));
-	getchar();
+	printf("%d\n", info.test(state, mem, info.index));
+	//getchar();
 }

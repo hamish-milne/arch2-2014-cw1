@@ -51,7 +51,9 @@ typedef enum _mips_error{
     mips_ExceptionAccessViolation=0x2003,
     mips_ExceptionInvalidInstruction=0x2004,
     mips_ExceptionArithmeticOverflow=0x2005,
+    #define ExceptionCoprocessorUnusable
     mips_ExceptionCoprocessorUnusable=0x2006,
+    #define ExceptionSystemCall
     mips_ExceptionSystemCall=0x2007,
     ///@}
 
