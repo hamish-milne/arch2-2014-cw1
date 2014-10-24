@@ -4,7 +4,7 @@
 #include "mips_util.h"
 #include <stdbool.h>
 
-typedef bool (*test_op)(mips_cpu_h state, mips_mem_h mem, unsigned index);
+typedef bool (*test_op)(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index);
 typedef bool (*rtype_test_op)(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error);
 typedef bool (*hilo_test_op)(uint32_t a, uint32_t b, uint64_t out, mips_error error);
 
@@ -188,7 +188,7 @@ static const uint32_t shift_test_values[NUM_VALUES] =
 	0, 1, 2, 3, 4
 };
 
-bool rtype_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool rtype_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j;
 	bool pass = true;
@@ -211,7 +211,7 @@ bool rtype_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 	return pass;
 }
 
-bool imm_test_base(mips_cpu_h state, mips_mem_h mem, unsigned index, const uint32_t* values, const rtype_test_op* tests)
+bool imm_test_base(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index, const uint32_t* values, const rtype_test_op* tests)
 {
 	int i, j;
 	bool pass = true;
@@ -233,17 +233,17 @@ bool imm_test_base(mips_cpu_h state, mips_mem_h mem, unsigned index, const uint3
 	return pass;
 }
 
-bool itype_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool itype_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return imm_test_base(state, mem, index, imm_test_values, itype_tests);
 }
 
-bool shift_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool shift_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return imm_test_base(state, mem, index, shift_test_values, shift_tests);
 }
 
-bool hilo_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool hilo_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j;
 	uint32_t v1, v2, o1, o2;
@@ -276,7 +276,7 @@ bool hilo_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 	return pass;
 }
 
-bool lui_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lui_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i;
 	uint32_t v, out;
@@ -293,7 +293,7 @@ bool lui_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 	return pass;
 }
 
-bool load_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t value)
+bool load_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t value)
 {
 	mips_cpu_set_pc(state, 0);
 	mips_cpu_set_register(state, 1, offset);
@@ -305,32 +305,32 @@ bool load_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t value
 	return (out == value);
 }
 
-bool lw_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lw_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return load_base(state, mem, 5, 0x87654321);
 }
 
-bool lh_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lh_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return load_base(state, mem, 7, 0xffff8765);
 }
 
-bool lb_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lb_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return load_base(state, mem, 8, 0xffffff87);
 }
 
-bool lhu_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lhu_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return load_base(state, mem, 7, 0x00008765);
 }
 
-bool lbu_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lbu_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return load_base(state, mem, 8, 0x00000087);
 }
 
-bool store_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t store, uint32_t value)
+bool store_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t store, uint32_t value)
 {
 	mips_cpu_set_pc(state, 0);
 	mips_cpu_set_register(state, 1, offset);
@@ -340,48 +340,47 @@ bool store_base(mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t stor
 	uint32_t out = 0;
 	mips_mem_read(mem, 4, 4, (uint8_t*)&out);
 	reverse_word(&out);
-	printf("%x\n", out);
 	return (out == value);
 }
 
-bool sw_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool sw_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return store_base(state, mem, 5, 0x12345678, 0x12345678);
 }
 
-bool sh_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool sh_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return store_base(state, mem, 7, 0x12345678, 0x87655678);
 }
 
-bool sb_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool sb_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return store_base(state, mem, 8, 0x12345678, 0x87654378);
 }
 
-bool lwl_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lwl_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
 	return load_base(state, mem, 8, 0x789A5678);
 }
 
-bool lwr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool lwr_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
 	return load_base(state, mem, 9, 0x1234789A);
 }
 
-bool swl_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool swl_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return store_base(state, mem, 6, 0x87654321, 0x12876578);
 }
 
-bool swr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool swr_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	return store_base(state, mem, 7, 0x87654321, 0x12432178);
 }
 
-bool branch_base(mips_cpu_h state, uint32_t value, uint32_t test, unsigned index)
+bool branch_base(const char* name, mips_cpu_h state, uint32_t value, uint32_t test, unsigned index)
 {
 	int i;
 	mips_error error = 0, last_error = 0;
@@ -402,16 +401,84 @@ bool branch_base(mips_cpu_h state, uint32_t value, uint32_t test, unsigned index
 	return (out == test) && (!index || pcn == 12);
 }
 
-bool link_base(mips_cpu_h state, unsigned reg, uint32_t pc)
+bool jump_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	uint32_t out;
-	mips_cpu_get_register(state, reg, &out);
-	return out == pc;
+	return branch_base(state, 0, 0xB, index);
 }
 
-bool jump_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+bool beq_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	return (branch_base(state, 0) == 0xB) && (!index || link_base(state, 31, 12));
+	mips_cpu_set_register(state, 3, 0x12345678);
+	return branch_base(state, 0x12345678, 0xB, 0) &&
+		   branch_base(state, 0x87654321, 0x7, 0);
+}
+
+bool bne_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	mips_cpu_set_register(state, 3, 0x12345678);
+	return branch_base(state, 0x12345678, 0x7, 0) &&
+		   branch_base(state, 0x87654321, 0xB, 0);
+}
+
+bool break_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	mips_cpu_set_pc(state, 0);
+	return mips_cpu_step(state) == mips_ExceptionBreak;
+}
+
+bool syscall_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	mips_cpu_set_pc(state, 0);
+	return mips_cpu_step(state) == mips_ExceptionSystemCall;
+}
+
+typedef struct
+{
+	bool lt, gt, eq, link;
+} bzero_set;
+
+static const bzero_set bzero[6] =
+{
+	{ true, false, false, false }, // BLTZ
+	{ false, true, true, false }, // BGEZ
+	{ true, false, true, false }, // BLTZ
+	{ false, true, false, false }, // BGEZ
+	{ true, false, false, true }, // BLTZAL
+	{ false, true, true, true }, // BGEZAL
+};
+
+bool bzero_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	bzero_set set = bzero[index];
+	return	branch_base(state, -1, set.lt ? 0xB : 0x7, set.link)
+		 && branch_base(state, 1, set.gt ? 0xB : 0x7, set.link)
+		 && branch_base(state, 0, set.eq ? 0xB : 0x7, set.link);
+}
+
+bool jr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	return branch_base(state, 16, 0xB, 0);
+}
+
+bool jalr_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	uint32_t out;
+	bool bresult = branch_base(state, 16, 0xB, 0);
+	if(bresult)
+	{
+		mips_cpu_get_register(state, 3, &out);
+		return out == 12;
+	}
+	return false;
+}
+
+bool hi_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
+{
+	uint32_t out;
+	mips_cpu_set_pc(state, 0);
+	mips_cpu_step(state);
+	mips_cpu_step(state);
+	mips_error error = mips_cpu_step(state);
 }
 
 typedef struct
@@ -477,17 +544,17 @@ static const test_info tests[56] =
 
 	{ &jump_test,  0, "J",		{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
 	{ &jump_test,  1, "JAL",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
-	{ &jr_test,    0, "JR",		{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
-	{ &jalr_test,  0, "JALR",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &jr_test,    0, "JR",		{0x01002134, 0x08004000, 0x02002134, 0x04002134, 0x08002134} },
+	{ &jalr_test,  0, "JALR",	{0x01002134, 0x09184000, 0x02002134, 0x04002134, 0x08002134} },
 
-	{ &beq_test,   0, "BEQ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bne_test,   0, "BNE",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bltz_test,  0, "BLTZ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bgez_test,  0, "BGEZ",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
-	{ &blez_test,  0, "BLEZ",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bgtz_test,  0, "BGTZ",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bltzal_test,0, "BLTZAL",	{0x01002134, 0x04000008, 0x02002134, 0x04002134, 0x08002134} },
-	{ &bgezal_test,0, "BGEZAL",	{0x01002134, 0x0400000C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &beq_test,   0, "BEQ",	{0x01002134, 0x02004310, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bne_test,   0, "BNE",	{0x01002134, 0x02004314, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 0, "BLTZ",	{0x01002134, 0x02004004, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 1, "BGEZ",	{0x01002134, 0x02004104, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 2, "BLEZ",	{0x01002134, 0x02004018, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 3, "BGTZ",	{0x01002134, 0x0200401C, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 4, "BLTZAL",	{0x01002134, 0x02005004, 0x02002134, 0x04002134, 0x08002134} },
+	{ &bzero_test, 5, "BGEZAL",	{0x01002134, 0x02005104, 0x02002134, 0x04002134, 0x08002134} },
 
 };
 
@@ -497,6 +564,6 @@ void do_test(mips_cpu_h state, mips_mem_h mem, unsigned index)
 	printf("Doing test %s\n", info.name);
 	mips_mem_write(mem, 0,
 					sizeof(info.data), (uint8_t*)info.data);
-	printf("%d\n", info.test(state, mem, info.index));
+	printf("%d\n", info.test(info.name, state, mem, info.index));
 	//getchar();
 }

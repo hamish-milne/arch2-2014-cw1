@@ -261,7 +261,6 @@ mips_error jump(mips_cpu_h state, uint32_t instruction)
 {
 	jtype operands = get_jtype(instruction);
 	link(state, operands.opcode, 1);
-	state->pc += 4;
 	set_branch_delay(state, ((state->pc + 4) & 0xF0000000) | (operands.imm << 2));
 	return mips_Success;
 }
@@ -305,9 +304,10 @@ mips_error branch_zero(mips_cpu_h state, uint32_t instruction)
 	/// to determine if we need to link
 	/// The link happens regardless of whether the condition is true
 	link(state, operands.d, 0x20);
-	advance_pc(state);
 	if(result)
-		set_branch_delay(state, state->pc + ((int16_t)operands.imm << 2));
+		set_branch_delay(state, state->pc + 4 + ((int16_t)operands.imm << 2));
+	else
+		advance_pc(state);
 	return mips_Success;
 }
 
@@ -330,7 +330,9 @@ mips_error branch_var(mips_cpu_h state, uint32_t instruction)
 				operands.d, result ? "TRUE" : "FALSE"));
 	}
 	if(result)
-		set_branch_delay(state, state->pc + ((int16_t)operands.imm << 2));
+		set_branch_delay(state, state->pc + 4 + ((int16_t)operands.imm << 2));
+	else
+		advance_pc(state);
 	return mips_Success;
 }
 
@@ -959,7 +961,7 @@ static rtype_op_info rtype_ops[64] =
 	{ &mthi, "MTHI" },
 	{ &mflo, "MFLO" },
 	{ &mtlo, "MTLO" },
-	/// 0101i
+	/// 0101
 	BLANK,
 	/// 0110
 	{ &mult, "MULT" },
@@ -1273,8 +1275,8 @@ int main()
 {
 	int i;
 	mips_cpu_h state = mips_cpu_create(mips_mem_create_ram(4096, 4));
-	mips_cpu_set_debug_level(state, 3, NULL);
-	for(i = 40; i < 42; i++)
+	//mips_cpu_set_debug_level(state, 3, NULL);
+	for(i = 40; i < 52; i++)
 		do_test(state, state->mem, i);
 	/*mips_load_file(state->mem, "fragments/f_fibonacci-mips.bin");
 	mips_error error;
