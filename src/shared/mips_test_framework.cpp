@@ -11,7 +11,7 @@
 #include <vector>
 #include <set>
 #include <algorithm>
-#include <string> 
+#include <string>
 
 static bool sg_started=false;
 
@@ -93,44 +93,44 @@ extern "C" void mips_test_begin_suite()
         fprintf(stderr, "Error:mips_test_begin_suite - Test suite has already been started\n");
         exit(1);
     }
-    
+
     // Build up a list of known instruction names
     for(unsigned i=0; i<sg_instructionsCount; i++){
         sg_knownInstructions.insert(std::string(sg_instructionsArray[i].instruction));
     }
-    
+
     sg_started=true;
 }
-  
+
 extern "C" int mips_test_begin_test(const char *instruction)
 {
     if(!sg_started){
         fprintf(stderr, "Error:mips_test_begin_test - Test suite has not been started with mips_test_begin_suite.\n");
         exit(1);
     }
-    
+
     if(sg_tests.size()>0){
         if(sg_tests.back().status == -1){
             fprintf(stderr, "Error:mips_test_begin_test - Attempt to start new test of '%s', but previous test with id %u has not been completed.\n", instruction, sg_tests.back().testId);
             exit(1);
         }
     }
-    
+
     int testId=sg_tests.size();
-    
+
     test_info_t info;
     info.testId=testId;
-    
+
     info.instruction=instruction; // We want the string in upper case (shouting!)
     std::transform(info.instruction.begin(), info.instruction.end(), info.instruction.begin(), ::toupper);
-    
+
     if(sg_knownInstructions.find(info.instruction)==sg_knownInstructions.end()){
         fprintf(stderr, "Warning:mips_test_begin_test - Unknown instruction '%s', might want to check the spelling.\n", instruction);
     }
-    
+
     info.status=-1;
     sg_tests.push_back(info);
-    
+
     return testId;
 }
 
@@ -140,7 +140,7 @@ extern "C" void mips_test_end_test(int testId, int passed, const char *msg)
         fprintf(stderr, "Error:mips_test_finish_test - Test suite has not been started with mips_test_begin_suite.");
         exit(1);
     }
-    
+
     if(sg_tests.size()==0){
         fprintf(stderr, "Error:mips_test_finish_test - No tests have been started.\n");
         exit(1);
@@ -151,9 +151,9 @@ extern "C" void mips_test_end_test(int testId, int passed, const char *msg)
     }
     if(sg_tests.back().status!=-1){
         fprintf(stderr, "Error:mips_test_finish_test - Attempt to finish test %u, but it already finished with status %u.\n", testId, sg_tests.back().status);
-        exit(1);  
+        exit(1);
     }
-    
+
     sg_tests.back().status=passed ? 1 : 0;
     if(msg){
         sg_tests.back().message=msg;
@@ -175,38 +175,38 @@ extern "C" void mips_test_end_suite()
         fprintf(stderr, "Error:mips_test_finish_suite - The final test has not been completed yet.\n");
         exit(1);
     }
-    
+
     // Now we will go through an collect some statistics about what happened
-    
+
     // Build a map from instruction name to a pair of (tests,passed)
     typedef std::map<std::string, std::pair<int,int> > stats_t;
     stats_t statistics;
-    
+
     for(unsigned i=0; i<sg_tests.size(); i++){
         test_info_t info=sg_tests[i];
-        
+
         statistics[info.instruction].first++;   // count all tests
         if(info.status==1){
             statistics[info.instruction].second++;  // count the ones that passed
         }
     }
-    
+
     fprintf(stderr, "\n");
     fprintf(stderr, "| Instruction |  tests | passed | success |\n");
     fprintf(stderr, "+-------------+--------+--------+---------+\n");
-    
+
     // Work out what happened for each instruction
     int totalTested=0;
     int totalNotWorking=0;
     int totalPartiallyWorking=0;
     int totalFullyWorking=0;
-    
+
     stats_t::const_iterator it=statistics.begin();
     while(it!=statistics.end()){
         std::string name=it->first;
         int total=it->second.first;
         int passed=it->second.second;
-        
+
         totalTested++;
         if(passed==0){
             totalNotWorking++;
@@ -215,20 +215,20 @@ extern "C" void mips_test_end_suite()
         }else{
             totalFullyWorking++;
         }
-            
-        fprintf(stderr, "|%12s |   %4u |   %4u |  %5.1lf%% |\n", name.c_str(), total, passed, 100.0*passed/(double)total);
-        
+
+        fprintf(stderr, "|%12s |   %4u |   %4u |  %5.1f%% |\n", name.c_str(), total, passed, 100.0*passed/(double)total);
+
         if(sg_knownInstructions.find(name)==sg_knownInstructions.end()){
             fprintf(stderr, "+ Warning: previous instruction not known +\n");
         }
-        
+
         ++it;
     }
-   
-    fprintf(stderr, "+-------------+--------+--------+---------+\n"); 
+
+    fprintf(stderr, "+-------------+--------+--------+---------+\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Total instructions tested: %3u\n", totalTested);
-    fprintf(stderr, "Fully working :            %3u (%5.1lf%%)\n", totalFullyWorking, 100.0*totalFullyWorking/(double)totalTested);
-    fprintf(stderr, "Partially working :        %3u (%5.1lf%%)\n", totalPartiallyWorking, 100.0*totalPartiallyWorking/(double)totalTested);
-    fprintf(stderr, "Not working at all :       %3u (%5.1lf%%)\n", totalNotWorking, 100.0*totalNotWorking/(double)totalTested);
+    fprintf(stderr, "Fully working :            %3u (%5.1f%%)\n", totalFullyWorking, 100.0*totalFullyWorking/(double)totalTested);
+    fprintf(stderr, "Partially working :        %3u (%5.1f%%)\n", totalPartiallyWorking, 100.0*totalPartiallyWorking/(double)totalTested);
+    fprintf(stderr, "Not working at all :       %3u (%5.1f%%)\n", totalNotWorking, 100.0*totalNotWorking/(double)totalTested);
 }
