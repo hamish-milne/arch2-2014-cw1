@@ -15,13 +15,41 @@
 #include <limits.h>
 #include <stdbool.h>
 
+/**
+ * Required signature for a general test operation
+ * name : The instruction name
+ * state : The CPU object
+ * mem : The memory object
+ * index : An optional integer parameter stored in the test settings
+ **/
 typedef void (*test_op)(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index);
+
+/**
+ * Required signature for an R-type specific operation
+ * a : The first operand value
+ * b : The second operand value
+ * out : The recorded value from the CPU
+ * imm : true if the second value is a 16-bit constant
+ * error : The error reported by the step function call
+ **/
 typedef bool (*rtype_test_op)(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error);
+
+/**
+ * Required signature for a multiply/divide test operation
+ * a : The first operand value
+ * b : The second operand value
+ * out : The recorded value from the CPU
+ * imm : true if the second value is a 16-bit constant
+ * error : The error reported by the step function call
+ */
 typedef bool (*hilo_test_op)(uint32_t a, uint32_t b, uint64_t out, mips_error error);
 
+/** The size of temp_buf **/
 #define BUF_SIZE 256
+/** A temporary character buffer used to build error messages **/
 static char temp_buf[BUF_SIZE];
 
+/** Test for ADD (rtype_test_op) */
 bool add_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	int32_t x = a;
@@ -32,11 +60,13 @@ bool add_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 	return !error && ((int32_t)out == (x + y));
 }
 
+/** Test for SUB (rtype_test_op) */
 bool sub_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return add_test(a, -b, out, imm, error);
 }
 
+/** Test for ADDU (rtype_test_op) */
 bool addu_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	if(imm)
@@ -44,46 +74,55 @@ bool addu_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 	return !error && (out == (a + b));
 }
 
+/** Test for SUBU (rtype_test_op) */
 bool subu_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a - b));
 }
 
+/** Test for AND (rtype_test_op) */
 bool and_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a & b));
 }
 
+/** Test for OR (rtype_test_op) */
 bool or_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a | b));
 }
 
+/** Test for XOR (rtype_test_op) */
 bool xor_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a ^ b));
 }
 
+/** Test for NOR (rtype_test_op) */
 bool nor_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == ~(a | b));
 }
 
+/** Test for SLL (rtype_test_op) */
 bool sll_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a << (b & 0x1F)));
 }
 
+/** Test for SRL (rtype_test_op) */
 bool srl_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && (out == (a >> (b & 0x1F)));
 }
 
+/** Test for SRA (rtype_test_op) */
 bool sra_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	return !error && ((int32_t)out == ((int32_t)a >> (b & 0x1F)));
 }
 
+ /** Test for SLT (rtype_test_op) */
 bool slt_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	if(out != 0 && out != 1)
@@ -93,6 +132,7 @@ bool slt_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 	return !error && (out ? ((int32_t)a < (int32_t)b) : ((int32_t)a >= (int32_t)b));
 }
 
+/** Test for SLTU (rtype_test_op) */
 bool sltu_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 {
 	if(out != 0 && out != 1)
@@ -102,26 +142,31 @@ bool sltu_test(uint32_t a, uint32_t b, uint32_t out, bool imm, mips_error error)
 	return !error && (out ? (a < b) : (a >= b));
 }
 
+/** Test for MULT (hilo_test_op) */
 bool mult_test(uint32_t a, uint32_t b, uint64_t out, mips_error error)
 {
 	return !error && ((int64_t)out == (int64_t)(int32_t)a * (int64_t)(int32_t)b);
 }
 
+/** Test for MULTU (hilo_test_op) */
 bool multu_test(uint32_t a, uint32_t b, uint64_t out, mips_error error)
 {
 	return !error && (out == (uint64_t)a * (uint64_t)b);
 }
 
+/** Test for DIV (hilo_test_op) */
 bool div_test(uint32_t a, uint32_t b, uint64_t out, mips_error error)
 {
 	return !error && ((int32_t)(out >> 32) == (int32_t)a % (int32_t)b) && ((int32_t)out == (int32_t)a / (int32_t)b);
 }
 
+/** Test for DIVU (hilo_test_op) */
 bool divu_test(uint32_t a, uint32_t b, uint64_t out, mips_error error)
 {
 	return !error && ((uint32_t)(out >> 32) == a % b) && ((uint32_t)out == a / b);
 }
 
+/** The list of R-type test operations, by index */
 static const rtype_test_op rtype_tests[13] =
 {
 	&add_test,
@@ -142,6 +187,7 @@ static const rtype_test_op rtype_tests[13] =
 	&sltu_test
 };
 
+/** The list of multiply/divide operations */
 static const hilo_test_op hilo_tests[4] =
 {
 	&mult_test,
@@ -150,6 +196,7 @@ static const hilo_test_op hilo_tests[4] =
 	&divu_test
 };
 
+/** The list of I-type (xxxI) operations */
 static const rtype_test_op itype_tests[7] =
 {
 	&add_test,
@@ -161,6 +208,7 @@ static const rtype_test_op itype_tests[7] =
 	&sltu_test
 };
 
+/** The list of immediate shift operations */
 static const rtype_test_op shift_tests[3] =
 {
 	&sll_test,
@@ -168,7 +216,10 @@ static const rtype_test_op shift_tests[3] =
 	&sra_test
 };
 
+/** The number of test values */
 #define NUM_VALUES 5
+
+/** General edge case values to test with */
 static const uint32_t test_values[NUM_VALUES] =
 {
 	0x00000000,
@@ -178,6 +229,7 @@ static const uint32_t test_values[NUM_VALUES] =
 	0xFFFFFFFF
 };
 
+/** Slightly less edgier cases for multiply/divide */
 static const uint32_t hilo_test_values[NUM_VALUES] =
 {
 	0x00000001,
@@ -187,6 +239,7 @@ static const uint32_t hilo_test_values[NUM_VALUES] =
 	0x10000000
 };
 
+/** The 16-bit immediate values hardcoded in memory */
 static const uint32_t imm_test_values[NUM_VALUES] =
 {
 	0x0000,
@@ -196,11 +249,18 @@ static const uint32_t imm_test_values[NUM_VALUES] =
 	0xFFFF
 };
 
+/** The shift immediate values hardcoded in memory */
 static const uint32_t shift_test_values[NUM_VALUES] =
 {
 	0, 1, 2, 3, 4
 };
 
+/**
+ * The general test for R-type operations (test_op)
+ * It runs a test for each possible combination of values,
+ * using the index parameter to find an rtype_test_op
+ * to see if the answer is correct.
+ **/
 void rtype_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j;
@@ -228,8 +288,15 @@ void rtype_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned ind
 		}
 	}
 }
-
-void imm_test_base(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index, const uint32_t* values, const rtype_test_op* tests)
+/**
+ * The general test for I-type operations
+ * name : The instruction name
+ * state : The CPU object
+ * index : The index parameter, passed straight through
+ * values : The value list to use
+ * tests : The test operation list to use
+ **/
+void imm_test_base(const char* name, mips_cpu_h state, unsigned index, const uint32_t* values, const rtype_test_op* tests)
 {
 	int i, j;
 	uint32_t v1, out;
@@ -255,16 +322,19 @@ void imm_test_base(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned 
 	}
 }
 
+/** The test for ADDI, XORI et. al. (test_op) */
 void itype_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	imm_test_base(name, state, mem, index, imm_test_values, itype_tests);
+	imm_test_base(name, state, index, imm_test_values, itype_tests);
 }
 
+/** The test for SLL et. al. (test_op) */
 void shift_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
-	imm_test_base(name, state, mem, index, shift_test_values, shift_tests);
+	imm_test_base(name, state, index, shift_test_values, shift_tests);
 }
 
+/** The test for MULT, DIV, and unsigned variants (test_op) */
 void hilo_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, j, testID;
@@ -298,6 +368,11 @@ void hilo_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned inde
 	}
 }
 
+/**
+ * Test for LUI (test_op)
+ * This test runs a single instruction and compares
+ * the destination register with the indexed immediate test value
+ **/
 void lui_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int i, testID;
@@ -318,6 +393,16 @@ void lui_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index
 	}
 }
 
+/**
+ * Base functionality for load operations, LW, LB et. al.
+ * This test sets the required registers, runs a single operation
+ * and compares the destination register with the given value
+ * name : The instruction name
+ * state : The CPU object
+ * mem : The memory object
+ * offset : The address stored in register 1
+ * value : The value to compare with
+ **/
 void load_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t value)
 {
 	int testID = mips_test_begin_test(name);
@@ -334,31 +419,45 @@ void load_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t offs
 	mips_test_end_test(testID, pass, pass ? NULL : temp_buf);
 }
 
+/** Test for LW (test_op) */
 void lw_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	load_base(name, state, mem, 5, 0x87654321);
 }
 
+/** Test for LH (test_op) */
 void lh_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	load_base(name, state, mem, 5, 0xffff8765);
 }
 
+/** Test for LB (test_op) */
 void lb_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	load_base(name, state, mem, 5, 0xffffff87);
 }
 
+/** Test for LHU (test_op) */
 void lhu_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	load_base(name, state, mem, 5, 0x00008765);
 }
 
+/** Test for LBU (test_op) */
 void lbu_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	load_base(name, state, mem, 5, 0x00000087);
 }
 
+/**
+ * Base functionality for store instructions (SW, SB et. al.)
+ * name : The instruction name
+ * state : The CPU object
+ * mem : The memory object
+ * offset : The address stored in register 1
+ * store : The value stored in register 3
+ * value : The value to compare the read memory with
+ **/
 void store_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t offset, uint32_t store, uint32_t value)
 {
 	int testID = mips_test_begin_test(name);
@@ -378,43 +477,61 @@ void store_base(const char* name, mips_cpu_h state, mips_mem_h mem, uint32_t off
 
 }
 
+/** Test for SW (test_op) **/
 void sw_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	store_base(name, state, mem, 5, 0x12345678, 0x12345678);
 }
 
+/** Test for SH (test_op) **/
 void sh_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	store_base(name, state, mem, 7, 0x12345678, 0x87655678);
 }
 
+/** Test for SB (test_op) **/
 void sb_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	store_base(name, state, mem, 8, 0x12345678, 0x87654378);
 }
 
+/** Test for LWL (test_op) **/
 void lwl_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
 	load_base(name, state, mem, 8, 0x789A5678);
 }
 
+/** Test for LWR (test_op) **/
 void lwr_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
 	load_base(name, state, mem, 9, 0x1234789A);
 }
 
+/** Test for SWL (test_op) **/
 void swl_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	store_base(name, state, mem, 6, 0x87654321, 0x12876578);
 }
 
+/** Test for SWR (test_op) **/
 void swr_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	store_base(name, state, mem, 7, 0x87654321, 0x12432178);
 }
 
+/**
+ * Base functionality for branch/jump instructions
+ * These tests execute 4 steps, then compare R1 with a test value
+ * to see which exact instructions were executed
+ * name : The instruction name
+ * testName : The name of this specific test
+ * state : The CPU object
+ * value : The value stored in register 2
+ * test : The value to compare with register 1
+ * index : The index of the link register, or 0 for no link
+ **/
 void branch_base(const char* name, const char* testName, mips_cpu_h state, uint32_t value, uint32_t test, unsigned index)
 {
 	int i;
@@ -444,11 +561,13 @@ void branch_base(const char* name, const char* testName, mips_cpu_h state, uint3
 	mips_test_end_test(testID, pass, pass ? NULL : temp_buf);
 }
 
+/** Test for J and JAL (test_op) **/
 void jump_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	branch_base(name, "Unconditional", state, 0, 0xB, index);
 }
 
+/** Test for BEQ (test_op) **/
 void beq_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
@@ -456,6 +575,7 @@ void beq_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index
 	branch_base(name, "Not equal", state, 0x87654321, 0x7, 0);
 }
 
+/** Test for BNE (test_op) **/
 void bne_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mips_cpu_set_register(state, 3, 0x12345678);
@@ -463,6 +583,7 @@ void bne_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index
 	branch_base(name, "Not equal", state, 0x87654321, 0xB, 0);
 }
 
+/** Test for BREAK (test_op) **/
 void break_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int testID = mips_test_begin_test(name);
@@ -474,6 +595,7 @@ void break_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned ind
 	mips_test_end_test(testID, pass, pass ? NULL : mips_error_string(error));
 }
 
+/** Test for SYSCALL (test_op) (test_op) **/
 void syscall_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	int testID = mips_test_begin_test(name);
@@ -485,11 +607,17 @@ void syscall_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned i
 	mips_test_end_test(testID, pass, pass ? NULL : mips_error_string(error));
 }
 
+/**
+ * Common settings for branch instructions that compare with zero
+ * Whether they pass on less than, greater than, or equal to zero,
+ * and whether they link
+ **/
 typedef struct
 {
 	bool lt, gt, eq, link;
 } bzero_set;
 
+/** The settings for all branch-zero instructions **/
 static const bzero_set bzero_sets[6] =
 {
 	{ true, false, false, false }, /** BLTZ */
@@ -500,6 +628,7 @@ static const bzero_set bzero_sets[6] =
 	{ false, true, true, true },   /** BGEZAL */
 };
 
+/** The test for BLTZ, BGEZ et. al. **/
 void bzero_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	bzero_set set = bzero_sets[index];
@@ -508,11 +637,21 @@ void bzero_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned ind
 	branch_base(name, "Zero", state, 0, set.eq ? 0xB : 0x7, set.link ? 31 : 0);
 }
 
+/** Test for JR and JALR **/
 void jr_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	branch_base(name, "Unconditional", state, 16, 0xB, 0);
 }
 
+/**
+ * Base functionality for MF(HI/LO) instructions
+ * Since there's no API method to read/write the HI/LO registers,
+ * we have to just do a multiplication and check each register
+ * name : The instruction name
+ * reg : The register name (HI/LO)
+ * state : The CPU object
+ * test : The value to test against register 3
+ **/
 void mf_base(const char* name, const char* reg, mips_cpu_h state, uint32_t test)
 {
 	mips_error error;
@@ -531,24 +670,32 @@ void mf_base(const char* name, const char* reg, mips_cpu_h state, uint32_t test)
 	mips_test_end_test(testID, pass, pass ? NULL : temp_buf);
 }
 
+/** Test for MFHI (test_op) **/
 void mfhi_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mf_base(name, "HI", state, 0x1);
 }
 
+/** Test for MFLO (test_op) **/
 void mflo_test(const char* name, mips_cpu_h state, mips_mem_h mem, unsigned index)
 {
 	mf_base(name, "LO", state, 0xECA8642);
 }
 
+/** Information about a single instruction test **/
 typedef struct
 {
+	/** Pointer to the test function itself **/
 	test_op test;
+	/** Optional index parameter passed to the test function **/
 	unsigned index;
+	/** The instruction name **/
 	const char* name;
+	/** Initial data to be written to memory, usually containing the test code **/
 	uint32_t data[8];
 } test_info;
 
+/** The test data itself **/
 static const test_info tests[56] =
 {
 	{ &rtype_test, 0, "ADD", 	{0x20182200} },

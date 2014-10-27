@@ -14,7 +14,9 @@
 #include <stdbool.h>
 #include <string.h>
 
+/** The number of simulated register **/
 #define NUM_REGS 32
+/** The size of temp_buf **/
 #define BUF_SIZE 256
 
 #define BLANK {0},{0},{0},{0}
