@@ -763,8 +763,8 @@ static const test_info tests[56] =
 	{ &bzero_test, 4, "BLTZAL",	{0x01002134, 0x02005004, 0x02002134, 0x04002134, 0x08002134} },
 	{ &bzero_test, 5, "BGEZAL",	{0x01002134, 0x02005104, 0x02002134, 0x04002134, 0x08002134} },
 
-/*	{ &break_test, 0, "BREAK",	{0x00000000} },*/
-/*	{ &syscall_test,0,"SYSCALL",{0x00000000} },*/
+/*	{ &break_test, 0, "BREAK",	{0x0D000000} },*/
+/*	{ &syscall_test,0,"SYSCALL",{0x0C000000} },*/
 
 	{ &mfhi_test,  0, "MFHI",	{0x19002200, 0x10180000} },
 	{ &mflo_test,  0, "MFLO",	{0x19002200, 0x12180000} },
@@ -789,5 +789,7 @@ int main()
 	for(i = 0; i < 52; i++)
 		do_test(cpu, mem, i);
 	mips_test_end_suite();
+	mips_cpu_free(cpu);
+	mips_mem_free(mem);
 	return 0;
 }

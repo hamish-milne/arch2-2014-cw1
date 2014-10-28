@@ -69,10 +69,8 @@
 		<Unit filename="src/hnm13/mips_cpu.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="src/hnm13/mips_cpu_extend.h" />
 		<Unit filename="src/hnm13/mips_test.c">
-			<Option compilerVar="CC" />
-		</Unit>
-		<Unit filename="src/hnm13/mips_util.c">
 			<Option compilerVar="CC" />
 		</Unit>
 		<Unit filename="src/hnm13/mips_util.h" />

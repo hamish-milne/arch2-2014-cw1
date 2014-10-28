@@ -142,18 +142,6 @@ jtype get_jtype(uint32_t instr)
 }
 
 /** Reverses the byte order of the given input */
-void reverse_word(uint32_t* word)
-{
-	uint32_t ret;
-	uint8_t *iptr = (uint8_t*)word + 4;
-	uint8_t *optr = (uint8_t*)&ret;
-	uint8_t *end = optr + 4;
-	while(optr < end)
-		*optr++ = *--iptr;
-	*word = ret;
-}
-
-/** Reverses the byte order of the given input */
 void reverse_half(uint16_t* half)
 {
 	uint8_t* ptr = (uint8_t*)half;
@@ -1225,6 +1213,18 @@ mips_error mips_cpu_set_coprocessor(mips_cpu_h state,
 	return mips_Success;
 }
 
+mips_error mips_cpu_set_exception_handler(mips_cpu_h state,
+	mips_error exception,
+	uint32_t handler)
+{
+	if(state == NULL)
+		return mips_ErrorInvalidHandle;
+	if((exception & 0xFFF0) != (mips_ExceptionAccessViolation & 0xFFF0))
+		return mips_ErrorInvalidArgument;
+	state->exception[exception & 0xF] = handler;
+	return mips_Success;
+}
+
 /** Releases CPU resources */
 void mips_cpu_free(mips_cpu_h state)
 {
@@ -1232,30 +1232,6 @@ void mips_cpu_free(mips_cpu_h state)
 	{
 		if(state->output != NULL)
 			fclose(state->output);
-		if(state->mem != NULL)
-			mips_mem_free(state->mem);
 		free(state);
 	}
-}
-
-mips_error mips_load_file(mips_mem_h mem, const char* file)
-{
-	unsigned len;
-	mips_error error;
-	uint8_t* temp;
-	FILE* fp = fopen(file, "rb");
-	if(fp == NULL || ferror(fp))
-		return mips_ErrorFileReadError;
-	fseek(fp, 0, SEEK_END);
-	len = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	temp = malloc(len);
-	fread(temp, 1, len, fp);
-	error = mips_ErrorFileReadError;
-	if(!ferror(fp))
-		error = mips_mem_write(mem, 0, len, temp);
-
-	free(temp);
-	fclose(fp);
-	return error;
 }
